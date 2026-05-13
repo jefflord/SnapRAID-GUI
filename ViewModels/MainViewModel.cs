@@ -19,12 +19,14 @@ public partial class MainViewModel : BaseViewModel
     [ObservableProperty] private DiffData? _diffData;
     [ObservableProperty] private bool _isRunningOperation;
     [ObservableProperty] private string _operationStatus = "Ready";
+    [ObservableProperty] private string _logDirectoryPath = string.Empty;
 
     public RelayCommand SaveSettingsCommand { get; }
     public RelayCommand BrowseSnapRaidExeCommand { get; }
     public RelayCommand BrowseConfFileCommand { get; }
 
-    [RelayCommand] private void Status() => RunAsync(() => _snapRAIDService.RunStatusAsync());
+    [RelayCommand] private void Status() => _ = OnStatus();
+    [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Diff() => _ = OnDiff();
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Sync() => _ = OnSync();
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void ScrubNew() => _ = OnScrub(false);
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void ScrubFull() => _ = OnScrub(true);
@@ -50,6 +52,20 @@ public partial class MainViewModel : BaseViewModel
 
         // Pass settings to the service so it uses the correct snapraid.exe path
         _snapRAIDService.SetSettings(Settings);
+
+        // Set log directory path for display in console and status bar
+        LogDirectoryPath = _loggingService.LogDirectory;
+
+        // Write startup message with log folder location
+        var startupMsg = $"=== SnapRAID GUI Started ===\n";
+        startupMsg += $"snapraid.exe: {Settings?.SnapRaidExePath ?? "not configured"}\n";
+        startupMsg += $"snapraid.conf: {Settings?.ConfFilePath ?? "not configured"}\n";
+        startupMsg += $"Logs directory: {_loggingService.LogDirectory}\n";
+        startupMsg += $"===========================\n\n";
+        AppendConsole(startupMsg);
+
+        // Log the startup event
+        _loggingService.WriteLog("startup", startupMsg);
 
         // Auto-open settings if snapraid.exe path is not configured or file doesn't exist
         var needsConfig = string.IsNullOrWhiteSpace(Settings?.SnapRaidExePath) || !File.Exists(Settings.SnapRaidExePath);
@@ -108,12 +124,12 @@ public partial class MainViewModel : BaseViewModel
         var diffOutput = await _snapRAIDService.RunDiffAsync();
         DiffData = DiffParser.Parse(diffOutput);
 
-        if (DiffData.HasLargeDeletions(Settings.DeletionWarningThreshold))
+        if (DiffData.HasLargeDeletions(Settings?.DeletionWarningThreshold ?? 50))
         {
             var result = System.Windows.MessageBox.Show(
                 $"Large number of deletions detected ({DiffData.RemovedFiles} files removed).\n\n" +
                 $"Are you sure you want to update parity?\n\n" +
-                $"Threshold: {Settings.DeletionWarningThreshold}",
+                $"Threshold: {Settings?.DeletionWarningThreshold ?? 50}",
                 "Warning: Large Deletions Detected",
                 System.Windows.MessageBoxButton.YesNo,
                 System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
@@ -173,6 +189,73 @@ public partial class MainViewModel : BaseViewModel
                 OperationStatus = "Ready";
             });
         });
+    }
+
+    private async Task OnDiff()
+    {
+        if (!ValidateSnapRaidPath()) return;
+
+        ClearConsole();
+        AppendConsole("Running diff...\n");
+        IsRunningOperation = true;
+        OperationStatus = "Diff in progress...";
+
+        var output = await _snapRAIDService.RunDiffAsync();
+        DiffData = DiffParser.Parse(output);
+        _loggingService.WriteLog("diff", output);
+
+        if (string.IsNullOrEmpty(DiffData?.RawOutput) || !DiffData.RawOutput.Contains("added:", StringComparison.OrdinalIgnoreCase))
+        {
+            AppendConsole("\n[INFO] No changes detected — array is in sync.\n");
+        }
+        else
+        {
+            AppendConsole($"\n--- Diff Summary ---\n");
+            AppendConsole($"  Added:   {DiffData.AddedFiles}\n");
+            AppendConsole($"  Removed: {DiffData.RemovedFiles}\n");
+            AppendConsole($"  Updated: {DiffData.UpdatedFiles}\n");
+            AppendConsole($"  Moved:   {DiffData.MovedFiles}\n");
+            AppendConsole($"  Copied:  {DiffData.CopiedFiles}\n");
+            AppendConsole($"  Equal:   {DiffData.EqualFiles}\n");
+            AppendConsole("--------------------\n\n");
+
+            if (DiffData.HasLargeDeletions(Settings?.DeletionWarningThreshold ?? 50))
+            {
+                AppendConsole($"[WARNING] Large deletions detected! Use Sync to update parity.\n");
+            }
+        }
+
+        IsRunningOperation = false;
+        OperationStatus = "Ready";
+    }
+
+    private async Task OnStatus()
+    {
+        if (!ValidateSnapRaidPath()) return;
+
+        ClearConsole();
+        AppendConsole("Fetching status...\n");
+        IsRunningOperation = true;
+        OperationStatus = "Refreshing...";
+
+        var output = await _snapRAIDService.RunStatusAsync();
+        StatusData = StatusParser.Parse(output);
+        _loggingService.WriteLog("status", output);
+
+        if (StatusData != null)
+        {
+            AppendConsole($"\n--- Status Summary ---\n");
+            AppendConsole($"  Parity fragmentation: {StatusData.ParityFragmentationPercent}%\n");
+            AppendConsole($"  Array status:         {StatusData.ArrayAgeStatus}\n");
+            AppendConsole($"  Days since sync:      {StatusData.DaysSinceLastSync}\n");
+            AppendConsole($"  Drives detected:      {StatusData.Drives.Count}\n");
+            if (StatusData.BadBlockDrives.Any())
+                AppendConsole($"  Bad block drives:     {string.Join(", ", StatusData.BadBlockDrives)}\n");
+            AppendConsole("----------------------\n\n");
+        }
+
+        IsRunningOperation = false;
+        OperationStatus = "Ready";
     }
 
     private bool ValidateSnapRaidPath()

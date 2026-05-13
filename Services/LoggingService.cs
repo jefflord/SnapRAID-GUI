@@ -9,9 +9,15 @@ public class LoggingService
 
     public LoggingService(string logDirectory)
     {
-        _logDirectory = logDirectory;
+        if (Path.IsPathRooted(logDirectory))
+            _logDirectory = logDirectory;
+        else
+            _logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnapRAID GUI", logDirectory);
+
         Directory.CreateDirectory(_logDirectory);
     }
+
+    public string LogDirectory => _logDirectory;
 
     public void WriteLog(string operation, string content)
     {

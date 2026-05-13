@@ -108,6 +108,7 @@
                         <TextBlock Text="Quick Actions" Foreground="#334155" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
                         <WrapPanel Margin="0,0,0,16">
                             <Button Content="Status" Style="{StaticResource SlateButton}" Command="{Binding StatusCommand}" Width="120" Height="40" Margin="4,0"/>
+                            <Button Content="Diff" Style="{StaticResource SlateButton}" Command="{Binding DiffCommand}" Width="120" Height="40" Margin="4,0"/>
                             <Button Content="Sync" Style="{StaticResource SlateButton}" Command="{Binding SyncCommand}" Width="120" Height="40" Margin="4,0"/>
                             <Button Content="Scrub (New)" Style="{StaticResource SlateButton}" Command="{Binding ScrubNewCommand}" Width="130" Height="40" Margin="4,0"/>
                             <Button Content="Scrub (Full)" Style="{StaticResource SlateButton}" Command="{Binding ScrubFullCommand}" Width="130" Height="40" Margin="4,0"/>
@@ -152,6 +153,15 @@
             <TabItem Header="Operations">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
                     <StackPanel>
+                        <!-- Diff Section -->
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Diff (Check for Changes)" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <TextBlock Text="Compares current files against parity to detect changes. Shows added, removed, updated, and moved files." Foreground="#64748b" FontSize="12" Margin="0,0,0,12"/>
+                                <Button Content="Run Diff" Style="{StaticResource SlateButton}" Command="{Binding DiffCommand}" Width="160" Height="44" FontSize="15" IsEnabled="{Binding !IsRunningOperation}"/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Sync Section -->
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                             <StackPanel>
@@ -254,7 +264,7 @@
         <!-- Status Bar -->
         <Border Grid.Row="2" Background="#e2e8f0" Padding="16,8">
             <Grid>
-                <TextBlock Text="{Binding Settings.SnapRaidExePath}" Foreground="#64748b" FontSize="11"/>
+                <TextBlock Text="{Binding LogDirectoryPath}" Foreground="#64748b" FontSize="11"/>
                 <TextBlock HorizontalAlignment="Right" Text="SnapRAID GUI v1.0" Foreground="#94a3b8" FontSize="11"/>
             </Grid>
         </Border>
