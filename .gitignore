@@ -1,0 +1,67 @@
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.log
+
+## Visual Studio / IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.cache
+*.otvss
+*.pidb
+*.pdb.bak
+*.tlb
+*.tli
+*.tlh
+*.resx
+*.rmvcs
+*.rmvcs.evt
+
+## Visual Studio Cache / IntelliSense
+*.ipch/
+_ide/
+_ReSharper*/
+*Cache*.jpg
+*.cache.nuget.pki
+
+## MSBuild
+obj/
+bin/
+*.dll
+*.exe
+*.pdb
+*.xml
+
+## NuGet
+packages/
+*.nupkg
+**/packages/**/ref/*
+**/lib/*
+**/contentFiles/**/*
+nuget.config
+nuget.exe
+
+## User-specific
+*.userosscache
+*.sln.docstates
+
+## Build releases
+Release/
+Debug/
+
+## OxyPlot / build artifacts
+*.plot.dat
+
+## Windows Installer
+*.cab
+*.msi
+*.msp
+*.mst
+
+## Other
+temp.txt
+temp.zip
