@@ -14,6 +14,8 @@ public partial class MainViewModel : BaseViewModel
     private readonly LoggingService _loggingService = new("logs");
     private readonly ConfigService _configService = new();
 
+    public RecoveryViewModel RecoveryViewModel { get; }
+
     [ObservableProperty] private string _consoleOutput = string.Empty;
     [ObservableProperty] private StatusData? _statusData;
     [ObservableProperty] private DiffData? _diffData;
@@ -48,6 +50,8 @@ public partial class MainViewModel : BaseViewModel
         _snapRAIDService.OutputReceived += OnOutputReceived;
         _snapRAIDService.ExitCodeReceived += OnExitCodeReceived;
         _snapRAIDService.ErrorOccurred += OnErrorOccurred;
+
+        RecoveryViewModel = new RecoveryViewModel(_snapRAIDService, _loggingService);
 
         Settings = LoadSettingsOrDefault();
 
@@ -235,63 +239,67 @@ public partial class MainViewModel : BaseViewModel
         if (!ValidateSnapRaidPath()) return;
 
         ClearConsole();
-        AppendConsole("Fetching status...\n");
+        AppendConsole("Fetching status and SMART data...\n");
         IsRunningOperation = true;
         OperationStatus = "Refreshing...";
 
         try
         {
-        var output = await _snapRAIDService.RunStatusAsync();
-        StatusData = StatusParser.Parse(output);
+            // Run status and smart in parallel
+            var statusTask = _snapRAIDService.RunStatusAsync();
+            var smartTask  = _snapRAIDService.RunSmartAsync();
+            await Task.WhenAll(statusTask, smartTask);
 
-        // Log raw status output
-        _loggingService.WriteLog("status", output);
+            var statusOutput = statusTask.Result;
+            var smartOutput  = smartTask.Result;
 
-        // Log parser diagnostics immediately after parsing
-        _loggingService.WriteLog("status_parse_diag", StatusData.ParseDiagnostics);
+            StatusData = StatusParser.Parse(statusOutput);
+            var smartData = SmartParser.Parse(smartOutput);
 
-        // Parse snapraid.conf for individual drive entries
-        if (!string.IsNullOrWhiteSpace(Settings?.ConfFilePath) && File.Exists(Settings.ConfFilePath))
-        {
-            try
+            // Log raw outputs and diagnostics
+            _loggingService.WriteLog("status", statusOutput);
+            _loggingService.WriteLog("smart",  smartOutput);
+            _loggingService.WriteLog("status_parse_diag", StatusData.ParseDiagnostics);
+
+            // Parse snapraid.conf
+            if (!string.IsNullOrWhiteSpace(Settings?.ConfFilePath) && File.Exists(Settings.ConfFilePath))
             {
-                StatusData.ConfigDrives = ConfigParser.Parse(Settings.ConfFilePath);
+                try { StatusData.ConfigDrives = ConfigParser.Parse(Settings.ConfFilePath); }
+                catch (Exception ex) { AppendConsole($"[WARN] Could not parse snapraid.conf: {ex.Message}\n"); }
             }
-            catch (Exception ex)
+            else
             {
-                AppendConsole($"[WARN] Could not parse snapraid.conf: {ex.Message}\n");
+                AppendConsole($"[WARN] snapraid.conf not found or path empty: '{Settings?.ConfFilePath}'\n");
             }
-        }
-        else
-        {
-            AppendConsole($"[WARN] snapraid.conf not found or path empty: '{Settings?.ConfFilePath}'\n");
-        }
 
-        BuildMergedDrives(StatusData);
+            BuildMergedDrives(StatusData, smartData);
 
-        if (StatusData != null)
-        {
-            var summary = new System.Text.StringBuilder();
-            summary.AppendLine("\n--- Status Summary ---");
-            summary.AppendLine($"  Parity fragmentation: {StatusData.ParityFragmentationPercent}%");
-            summary.AppendLine($"  Array status:         {StatusData.ArrayAgeStatus}");
-            summary.AppendLine($"  Days since sync:      {StatusData.DaysSinceLastSync}");
-            summary.AppendLine($"  Scrub status:         {StatusData.ScrubStatus}");
-            summary.AppendLine($"  Drives from status:   {StatusData.Drives.Count}");
-            foreach (var d in StatusData.Drives)
-                summary.AppendLine($"    [{d.Type}] {d.Name}  used={d.UsedSizeBytes / 1073741824.0:F1}GB  total={d.TotalSizeBytes / 1073741824.0:F1}GB  fill={d.FillPercent:F1}%");
-            summary.AppendLine($"  Conf drives:          {StatusData.ConfigDrives.Count}");
-            foreach (var c in StatusData.ConfigDrives)
-                summary.AppendLine($"    [{c.Type}] {c.Name}  {c.Path}");
-            summary.AppendLine($"  Merged drive rows:    {MergedDrives.Count}");
-            foreach (var m in MergedDrives)
-                summary.AppendLine($"    [{m.Type}] {m.Name}  used={m.UsedGB}  total={m.TotalGB}  fill={m.FillPercentText}  free={m.FreePercentText}");
-            if (StatusData.BadBlockDrives.Any())
-                summary.AppendLine($"  Bad block drives:     {string.Join(", ", StatusData.BadBlockDrives)}");
-            summary.AppendLine("----------------------");
-            AppendConsole(summary.ToString());
-            _loggingService.WriteLog("status_summary", summary.ToString());
-        }
+            if (StatusData != null)
+            {
+                var summary = new System.Text.StringBuilder();
+                summary.AppendLine("\n--- Status Summary ---");
+                summary.AppendLine($"  Array status:         {StatusData.ArrayAgeStatus}");
+                summary.AppendLine($"  Parity fragmentation: {StatusData.ParityFragmentationPercent}%");
+                summary.AppendLine($"  Days since sync:      {StatusData.DaysSinceLastSync}");
+                summary.AppendLine($"  Scrub status:         {StatusData.ScrubStatus}");
+                summary.AppendLine($"  Drives from status:   {StatusData.Drives.Count}");
+                foreach (var d in StatusData.Drives)
+                    summary.AppendLine($"    [{d.Type}] {d.Name}  used={d.UsedSizeBytes / 1073741824.0:F1}GB  total={d.TotalSizeBytes / 1073741824.0:F1}GB");
+                summary.AppendLine($"  Conf drives:          {StatusData.ConfigDrives.Count}");
+                foreach (var c in StatusData.ConfigDrives)
+                    summary.AppendLine($"    [{c.Type}] {c.Name}  {c.Path}");
+                summary.AppendLine($"  SMART entries:        {smartData.Count}");
+                foreach (var s in smartData.Values)
+                    summary.AppendLine($"    {s.DiskName}  temp={s.Temp}°C  days={s.PowerOnDays}  err={s.ErrorCount}  fp={s.FailPercent}%");
+                summary.AppendLine($"  Merged drive rows:    {MergedDrives.Count}");
+                foreach (var m in MergedDrives)
+                    summary.AppendLine($"    [{m.Type}] {m.Name}  used={m.UsedGB}  total={m.TotalGB}  fill={m.FillPercentText}  free={m.FreePercentText}  temp={m.SmartTempText}");
+                if (StatusData.BadBlockDrives.Any())
+                    summary.AppendLine($"  Bad block drives:     {string.Join(", ", StatusData.BadBlockDrives)}");
+                summary.AppendLine("----------------------");
+                AppendConsole(summary.ToString());
+                _loggingService.WriteLog("status_summary", summary.ToString());
+            }
         }
         catch (Exception ex)
         {
@@ -304,56 +312,70 @@ public partial class MainViewModel : BaseViewModel
         OperationStatus = "Ready";
     }
 
-    private void BuildMergedDrives(StatusData status)
+    private void BuildMergedDrives(StatusData status, Dictionary<string, SmartEntry>? smartData = null)
     {
         var diag = new System.Text.StringBuilder();
         diag.AppendLine("=== BuildMergedDrives ===");
-        diag.AppendLine($"  ConfigDrives count: {status.ConfigDrives.Count}");
-        diag.AppendLine($"  Status Drives count: {status.Drives.Count}");
+        diag.AppendLine($"  ConfigDrives: {status.ConfigDrives.Count}, StatusDrives: {status.Drives.Count}, SmartEntries: {smartData?.Count ?? 0}");
 
         var merged = new System.Collections.ObjectModel.ObservableCollection<MergedDriveEntry>();
 
-        // Start from conf entries as the authoritative source
         foreach (var conf in status.ConfigDrives)
         {
-            var entry = new MergedDriveEntry
-            {
-                Name = conf.Name,
-                Type = conf.Type,
-                Path = conf.Path
-            };
+            var entry = new MergedDriveEntry { Name = conf.Name, Type = conf.Type, Path = conf.Path };
 
-            // Enrich with live usage data from status output (data drives only)
+            // Merge status usage data (data drives)
             var live = status.Drives.FirstOrDefault(d =>
                 string.Equals(d.Name, conf.Name, StringComparison.OrdinalIgnoreCase));
             if (live != null)
             {
-                entry.UsedSizeBytes = live.UsedSizeBytes;
+                entry.UsedSizeBytes  = live.UsedSizeBytes;
                 entry.TotalSizeBytes = live.TotalSizeBytes;
-                diag.AppendLine($"  MERGED [{conf.Type}] {conf.Name} -> UsedGB={live.UsedSizeBytes / 1073741824.0:F1}, TotalGB={live.TotalSizeBytes / 1073741824.0:F1}");
+                diag.AppendLine($"  USAGE [{conf.Type}] {conf.Name}: used={live.UsedSizeBytes / 1073741824.0:F1}GB total={live.TotalSizeBytes / 1073741824.0:F1}GB");
             }
-            else
+
+            // For parity/extra drives (or any drive without status data), get OS free space
+            if (!entry.HasUsageData)
             {
-                diag.AppendLine($"  CONF-ONLY [{conf.Type}] {conf.Name} -> no live usage data (parity/extra)");
+                entry.PopulateOsFreeSpace();
+                if (entry.HasOsSpaceData)
+                    diag.AppendLine($"  OS-SPACE [{conf.Type}] {conf.Name}: free={entry.OsFreeSizeBytes / 1073741824.0:F1}GB total={entry.OsTotalSizeBytes / 1073741824.0:F1}GB");
+                else
+                    diag.AppendLine($"  NO-SPACE [{conf.Type}] {conf.Name}: could not resolve drive letter from path '{conf.Path}'");
+            }
+
+            // Merge SMART data
+            if (smartData != null && smartData.TryGetValue(conf.Name, out var smart))
+            {
+                entry.SmartTemp        = smart.Temp;
+                entry.SmartPowerOnDays = smart.PowerOnDays;
+                entry.SmartErrorCount  = smart.ErrorCount;
+                entry.SmartFailPercent = smart.FailPercent;
+                entry.SmartWearLevel   = smart.WearLevel;
+                entry.SmartIsSsd       = smart.IsSsd;
+                entry.SmartSerial      = smart.Serial;
+                entry.SmartSizeTB      = smart.SizeTB;
+                diag.AppendLine($"  SMART [{conf.Type}] {conf.Name}: temp={smart.Temp}°C days={smart.PowerOnDays} err={smart.ErrorCount} fp={smart.FailPercent}%");
             }
 
             merged.Add(entry);
         }
 
-        // Add any status drives not present in conf (safety net)
+        // Safety net: status drives not in conf
         foreach (var live in status.Drives)
         {
             if (!merged.Any(m => string.Equals(m.Name, live.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                diag.AppendLine($"  STATUS-ONLY (not in conf) [{live.Type}] {live.Name}");
-                merged.Add(new MergedDriveEntry
+                diag.AppendLine($"  STATUS-ONLY (not in conf) {live.Name}");
+                var entry = new MergedDriveEntry { Name = live.Name, Type = live.Type, Path = "—", UsedSizeBytes = live.UsedSizeBytes, TotalSizeBytes = live.TotalSizeBytes };
+                if (smartData != null && smartData.TryGetValue(live.Name, out var smart))
                 {
-                    Name = live.Name,
-                    Type = live.Type,
-                    Path = "—",
-                    UsedSizeBytes = live.UsedSizeBytes,
-                    TotalSizeBytes = live.TotalSizeBytes
-                });
+                    entry.SmartTemp = smart.Temp; entry.SmartPowerOnDays = smart.PowerOnDays;
+                    entry.SmartErrorCount = smart.ErrorCount; entry.SmartFailPercent = smart.FailPercent;
+                    entry.SmartWearLevel = smart.WearLevel; entry.SmartIsSsd = smart.IsSsd;
+                    entry.SmartSerial = smart.Serial; entry.SmartSizeTB = smart.SizeTB;
+                }
+                merged.Add(entry);
             }
         }
 

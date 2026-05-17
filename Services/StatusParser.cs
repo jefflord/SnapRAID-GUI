@@ -34,17 +34,17 @@ public static class StatusParser
             ParseDriveInfo(line, data, diag);
         }
 
-        // Determine array age status as fallback
+        // Determine array age status
         if (string.IsNullOrEmpty(data.ArrayAgeStatus))
         {
-            if (data.ParityFragmentationPercent == 0 && data.BadBlockDrives.Count == 0)
-                data.ArrayAgeStatus = "Clean";
-            else if (data.ParityFragmentationPercent > 0 && data.ParityFragmentationPercent < 100)
-                data.ArrayAgeStatus = "Sync Required";
-            else if (data.DaysSinceLastSync > 7)
-                data.ArrayAgeStatus = "Out of Date";
+            if (data.BadBlockDrives.Count > 0)
+                data.ArrayAgeStatus = "Errors";
+            else if (data.ParityFragmentationPercent > 20)
+                data.ArrayAgeStatus = "Needs Sync";
+            else if (data.DaysSinceLastSync > 30)
+                data.ArrayAgeStatus = "Stale";
             else
-                data.ArrayAgeStatus = "Unknown";
+                data.ArrayAgeStatus = "Healthy";
         }
 
         diag.AppendLine($"RESULT: ParityFrag={data.ParityFragmentationPercent}%, ArrayStatus={data.ArrayAgeStatus}, DaysSinceSync={data.DaysSinceLastSync}, ScrubStatus={data.ScrubStatus}");
@@ -107,9 +107,8 @@ public static class StatusParser
             data.ScrubStatus = isNot ? $"{scrubPct}% unscrubbed" : $"Scrubbed {scrubPct}%";
         }
 
-        if (line.IndexOf("no error detected", StringComparison.OrdinalIgnoreCase) >= 0 &&
-            string.IsNullOrEmpty(data.ArrayAgeStatus))
-            data.ArrayAgeStatus = "Clean";
+        if (line.IndexOf("no error detected", StringComparison.OrdinalIgnoreCase) >= 0)
+            data.ArrayAgeStatus = "Healthy";
     }
 
     private static void ParseBadBlocks(string line, StatusData data)

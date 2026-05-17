@@ -37,7 +37,6 @@ public class SnapRAIDService
         string arguments,
         CancellationToken cancellationToken = default)
     {
-        // Validate snapraid.exe exists before starting
         if (!File.Exists(command))
         {
             var msg = $"snapraid.exe not found at: {command}\n\nPlease set the correct path in Settings.";
@@ -58,35 +57,33 @@ public class SnapRAIDService
 
         if (!string.IsNullOrWhiteSpace(_settings.ConfFilePath))
         {
-            // Convert backslashes to forward slashes for CLI argument (snapraid on Windows handles /)
             var confPath = _settings.ConfFilePath.Replace('\\', '/');
             startInfo.Arguments += $" -c \"{confPath}\"";
         }
 
-        _currentProcess = new Process { StartInfo = startInfo };
+        // Use a local process variable so parallel calls don't race on _currentProcess
+        var process = new Process { StartInfo = startInfo };
+        _currentProcess = process; // track last started for Cancel() — best effort
+
         var outputBuilder = new System.Text.StringBuilder();
-        var errorBuilder = new System.Text.StringBuilder();
+        var errorBuilder  = new System.Text.StringBuilder();
 
         try
         {
-            _currentProcess.Start();
+            process.Start();
             OutputReceived?.Invoke(this, $"Running: {command} {arguments}\n");
 
             await Task.WhenAll(
-                ReadOutputAsync(_currentProcess.StandardOutput, outputBuilder, cancellationToken),
-                ReadOutputAsync(_currentProcess.StandardError, errorBuilder, cancellationToken)
+                ReadOutputAsync(process.StandardOutput, outputBuilder, cancellationToken),
+                ReadOutputAsync(process.StandardError,  errorBuilder,  cancellationToken)
             ).ConfigureAwait(false);
 
-            int exitCode = _currentProcess.ExitCode;
+            int exitCode = process.ExitCode;
             ExitCodeReceived?.Invoke(this, exitCode);
-
-            var fullOutput = outputBuilder.ToString();
             OutputReceived?.Invoke(this, $"\n[Exit code: {exitCode}]\n");
 
             if (!string.IsNullOrWhiteSpace(errorBuilder.ToString()))
-            {
                 ErrorOccurred?.Invoke(this, errorBuilder.ToString());
-            }
         }
         catch (Exception ex)
         {
@@ -97,9 +94,9 @@ public class SnapRAIDService
         }
         finally
         {
-            try { _currentProcess.WaitForInputIdle(1000); } catch { /* ignore */ }
-            _currentProcess.Close();
-            _currentProcess = null;
+            try { process.WaitForInputIdle(1000); } catch { }
+            process.Close();
+            if (ReferenceEquals(_currentProcess, process)) _currentProcess = null;
         }
 
         return outputBuilder.ToString();
@@ -145,6 +142,88 @@ public class SnapRAIDService
     public async Task<string> RunSmartAsync(CancellationToken cancellationToken = default)
     {
         return await RunCommandAsync(_settings.SnapRaidExePath, "smart", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs snapraid with the given arguments, calling <paramref name="onLine"/> for every line
+    /// of stdout as it arrives — no buffering. stderr is still collected and returned.
+    /// This is the right approach for "snapraid list" which can emit 500k+ lines.
+    /// </summary>
+    public async Task StreamCommandAsync(
+        string arguments,
+        Action<string> onLine,
+        CancellationToken cancellationToken = default)
+    {
+        var exe = _settings.SnapRaidExePath;
+        if (!File.Exists(exe))
+        {
+            onLine($"[ERROR] snapraid.exe not found at: {exe}");
+            return;
+        }
+
+        var args = arguments;
+        if (!string.IsNullOrWhiteSpace(_settings.ConfFilePath))
+            args += $" -c \"{_settings.ConfFilePath.Replace('\\', '/')}\"";
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = exe,
+            Arguments = args,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            CreateNoWindow = true
+        };
+
+        var process = new Process { StartInfo = startInfo };
+        _currentProcess = process;
+
+        try
+        {
+            process.Start();
+
+            // Read stderr on a background task so it doesn't block stdout
+            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+            // Stream stdout line by line — call onLine immediately for each.
+            // ConfigureAwait(false) keeps execution off the UI thread so the
+            // caller's Dispatcher.Invoke/BeginInvoke calls inside onLine work.
+            string? line;
+            while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)
+                       .ConfigureAwait(false)) != null)
+            {
+                onLine(line);
+            }
+
+            await stderrTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { /* caller cancelled — normal */ }
+        catch (Exception ex) { onLine($"[ERROR] {ex.Message}"); }
+        finally
+        {
+            try { if (!process.HasExited) process.Kill(true); } catch { }
+            process.Close();
+            if (ReferenceEquals(_currentProcess, process)) _currentProcess = null;
+        }
+    }
+
+    public async Task<string> RunListAsync(CancellationToken cancellationToken = default)
+    {
+        return await RunCommandAsync(_settings.SnapRaidExePath, "list", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> RunCheckFileAsync(string snapraidRelativePath, CancellationToken cancellationToken = default)
+    {
+        // snapraid requires a leading slash: check -f "/path/to/file"
+        var path = snapraidRelativePath.StartsWith('/') ? snapraidRelativePath : "/" + snapraidRelativePath;
+        return await RunCommandAsync(_settings.SnapRaidExePath, $"check -f \"{path}\"", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> RunFixFileAsync(string snapraidRelativePath, CancellationToken cancellationToken = default)
+    {
+        // snapraid requires a leading slash: fix -f "/path/to/file"
+        var path = snapraidRelativePath.StartsWith('/') ? snapraidRelativePath : "/" + snapraidRelativePath;
+        return await RunCommandAsync(_settings.SnapRaidExePath, $"fix -f \"{path}\"", cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string> RunFixAsync(CancellationToken cancellationToken = default)
