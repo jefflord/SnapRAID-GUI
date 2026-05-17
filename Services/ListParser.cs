@@ -12,9 +12,9 @@ using SnapRAIDGUI.Models;
 /// </summary>
 public static class ListParser
 {
-    // SIZE  DATE  TIME  "PATH"
+    // SIZE  DATE  TIME  "PATH"  (quotes only present when path contains spaces)
     private static readonly Regex LineRegex = new(
-        @"^\s*(\d+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2})\s+""(.+)""\s*$",
+        @"^\s*(\d+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2})\s+""?(.+?)""?\s*$",
         RegexOptions.Compiled);
 
     /// <summary>Parse a single line from snapraid list output. Returns null if the line doesn't match.</summary>
