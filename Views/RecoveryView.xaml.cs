@@ -12,16 +12,36 @@ public partial class RecoveryView : UserControl
     }
 
     /// <summary>
-    /// When a tree item is selected, if it is a file node, set it as the selected file
-    /// in the view model so Check/Fix buttons activate.
+    /// When a tree item is selected:
+    /// - File node  → set SelectedFile so Check/Fix buttons activate.
+    /// - Folder node → populate the results panel with the folder's direct files.
     /// </summary>
     private void TreeItem_Selected(object sender, System.Windows.RoutedEventArgs e)
     {
-        if (sender is TreeViewItem { DataContext: FileTreeNode node } && !node.IsDirectory)
+        if (sender is TreeViewItem { DataContext: FileTreeNode node } tvi)
         {
-            if (DataContext is RecoveryViewModel vm && node.FileEntry != null)
-                vm.SelectedFile = node.FileEntry;
+            if (DataContext is RecoveryViewModel vm)
+            {
+                if (node.IsDirectory)
+                    vm.SelectFolder(node);
+                else if (node.FileEntry != null)
+                    vm.SelectedFile = node.FileEntry;
+            }
         }
-        e.Handled = true; // prevent bubbling
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Sync the ListView's multi-selection to the ViewModel so Fix/Check can act on all selected files.
+    /// </summary>
+    private void ResultsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not RecoveryViewModel vm) return;
+
+        var selected = ResultsListView.SelectedItems
+            .OfType<FileEntry>()
+            .ToList();
+
+        vm.SetSelectedFiles(selected);
     }
 }

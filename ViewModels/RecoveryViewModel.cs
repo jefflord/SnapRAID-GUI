@@ -15,6 +15,23 @@ public partial class RecoveryViewModel : BaseViewModel
     // Cancellation for the currently running stream/search
     private CancellationTokenSource? _searchCts;
 
+    // When results were populated by clicking a folder, this holds the folder path
+    // so CheckAll can use a single wildcard check instead of per-file calls.
+    private string? _selectedFolderPath;
+
+    // All currently selected files in the results list (multi-select)
+    private List<FileEntry> _selectedFiles = new();
+
+    /// Called from code-behind whenever ListView.SelectionChanged fires.
+    public void SetSelectedFiles(List<FileEntry> files)
+    {
+        _selectedFiles = files;
+        // SelectedFile = the primary item (first selected, or null)
+        SelectedFile = files.Count > 0 ? files[0] : null;
+        CheckFileCommand.NotifyCanExecuteChanged();
+        FixFileCommand.NotifyCanExecuteChanged();
+    }
+
     // ── Observable state ──────────────────────────────────────────────────
     [ObservableProperty] private string    _searchPattern  = string.Empty;
     [ObservableProperty] private string    _statusText     = "Enter a search pattern and press Search.";
@@ -27,6 +44,33 @@ public partial class RecoveryViewModel : BaseViewModel
 
     public ObservableCollection<FileEntry>    SearchResults { get; } = new();
     public ObservableCollection<FileTreeNode> TreeRoots     { get; } = new();
+
+    [ObservableProperty] private string _selectedFolderLabel = string.Empty;
+
+    /// <summary>
+    /// Called from the view when a folder node is clicked in the tree.
+    /// Populates SearchResults with the folder's direct file children.
+    /// </summary>
+    public void SelectFolder(FileTreeNode folderNode)
+    {
+        _selectedFolderPath = folderNode.RelativePath;
+        SelectedFolderLabel = folderNode.RelativePath;
+        SelectedFile = null;
+        SearchResults.Clear();
+        MatchCount = 0;
+
+        // Collect direct file children of this folder node
+        var files = folderNode.Children
+            .Where(n => !n.IsDirectory && n.FileEntry != null)
+            .Select(n => n.FileEntry!)
+            .ToList();
+
+        foreach (var f in files) SearchResults.Add(f);
+        MatchCount = files.Count;
+        StatusText = $"Folder: {folderNode.RelativePath} — {files.Count} file(s). Click \"Check All Results\" to check.";
+
+        CheckAllCommand.NotifyCanExecuteChanged();
+    }
 
     // ── Search — streams snapraid list, matches lines on-the-fly ─────────
     [RelayCommand(CanExecute = nameof(CanSearch))]
@@ -41,7 +85,9 @@ public partial class RecoveryViewModel : BaseViewModel
         var ct = _searchCts.Token;
 
         IsSearching = true;
-        IsBusy      = false; // search doesn't block check/fix buttons
+        IsBusy      = false;
+        _selectedFolderPath = null;   // results now come from search, not folder click
+        SelectedFolderLabel = string.Empty;
         SearchResults.Clear();
         MatchCount  = 0;
         SelectedFile = null;
@@ -181,22 +227,29 @@ public partial class RecoveryViewModel : BaseViewModel
     [RelayCommand(CanExecute = nameof(CanActOnFile))]
     private async Task CheckFile()
     {
-        if (SelectedFile == null) return;
+        var targets = _selectedFiles.Count > 0 ? _selectedFiles.ToList() : new List<FileEntry>();
+        if (targets.Count == 0) return;
 
         IsBusy = true;
-        StatusText = $"Checking: {SelectedFile.FileName}…";
-        AppendConsole($"\nChecking: {SelectedFile.RelativePath}\n");
+        AppendConsole($"\nChecking {targets.Count} file(s)…\n");
 
         try
         {
-            var output = await _service.RunCheckFileAsync(SelectedFile.RelativePath);
-            var result = CheckResultParser.Parse(output, SelectedFile.RelativePath);
-            _logger.WriteLog("recovery_check", output);
-
-            SelectedFile.Status = result.Status;
-            AppendConsole($"Result: {result.Summary}\n");
-            StatusText = $"{SelectedFile.FileName}: {result.Summary}";
-            RefreshFileInResults(SelectedFile);
+            foreach (var file in targets)
+            {
+                StatusText = $"Checking: {file.FileName}…";
+                AppendConsole($"  {file.RelativePath}\n");
+                var output = await _service.RunCheckFileAsync(file.RelativePath);
+                var result = CheckResultParser.Parse(output, file.RelativePath);
+                _logger.WriteLog("recovery_check", output);
+                file.Status = result.Status;
+                AppendConsole($"  → {result.Summary}\n");
+                RefreshFileInResults(file);
+            }
+            var summary = targets.Count == 1
+                ? $"{targets[0].FileName}: {targets[0].Status}"
+                : $"Check complete: {targets.Count} files checked.";
+            StatusText = summary;
         }
         catch (Exception ex)
         {
@@ -209,29 +262,40 @@ public partial class RecoveryViewModel : BaseViewModel
     [RelayCommand(CanExecute = nameof(CanFixFile))]
     private async Task FixFile()
     {
-        if (SelectedFile == null) return;
+        var targets = _selectedFiles
+            .Where(f => f.Status is FileStatus.Bad or FileStatus.Missing or FileStatus.Unrecoverable or FileStatus.Unknown)
+            .ToList();
+        if (targets.Count == 0) return;
+
+        var fileList = targets.Count == 1
+            ? targets[0].RelativePath
+            : $"{targets.Count} files:\n" + string.Join("\n", targets.Take(10).Select(f => "  " + f.FileName))
+              + (targets.Count > 10 ? $"\n  …and {targets.Count - 10} more" : "");
 
         var confirm = System.Windows.MessageBox.Show(
-            $"Fix file:\n{SelectedFile.RelativePath}\n\nThis will attempt to recover the file from parity.\nProceed?",
+            $"Fix {(targets.Count == 1 ? "file" : "files")}:\n{fileList}\n\nThis will attempt to recover from parity.\nProceed?",
             "Confirm Fix",
             System.Windows.MessageBoxButton.YesNo,
             System.Windows.MessageBoxImage.Warning);
         if (confirm != System.Windows.MessageBoxResult.Yes) return;
 
         IsBusy = true;
-        StatusText = $"Fixing: {SelectedFile.FileName}…";
-        AppendConsole($"\nFixing: {SelectedFile.RelativePath}\n");
+        AppendConsole($"\nFixing {targets.Count} file(s)…\n");
 
         try
         {
-            var output = await _service.RunFixFileAsync(SelectedFile.RelativePath);
-            var result = CheckResultParser.Parse(output, SelectedFile.RelativePath);
-            _logger.WriteLog("recovery_fix", output);
-
-            SelectedFile.Status = result.WasRecovered ? FileStatus.OK : result.Status;
-            AppendConsole($"Result: {result.Summary}\n");
-            StatusText = $"{SelectedFile.FileName}: {result.Summary}";
-            RefreshFileInResults(SelectedFile);
+            foreach (var file in targets)
+            {
+                StatusText = $"Fixing: {file.FileName}…";
+                AppendConsole($"  {file.RelativePath}\n");
+                var output = await _service.RunFixFileAsync(file.RelativePath);
+                var result = CheckResultParser.Parse(output, file.RelativePath);
+                _logger.WriteLog("recovery_fix", output);
+                file.Status = result.WasRecovered ? FileStatus.OK : result.Status;
+                AppendConsole($"  → {result.Summary}\n");
+                RefreshFileInResults(file);
+            }
+            StatusText = $"Fix complete: {targets.Count} file(s) processed.";
         }
         catch (Exception ex)
         {
@@ -245,6 +309,62 @@ public partial class RecoveryViewModel : BaseViewModel
     private async Task CheckAll()
     {
         IsBusy = true;
+
+        try
+        {
+            if (_selectedFolderPath != null)
+                await CheckAllFolder(_selectedFolderPath);
+            else
+                await CheckAllIndividual();
+        }
+        finally { IsBusy = false; }
+    }
+
+    /// <summary>Single snapraid check -f "/folder/*" call — fast, one process.</summary>
+    private async Task CheckAllFolder(string folderPath)
+    {
+        StatusText = $"Checking folder: {folderPath}/*…";
+        AppendConsole($"\nChecking folder: {folderPath}/*\n");
+
+        var output = await _service.RunCheckFolderAsync(folderPath);
+        _logger.WriteLog("recovery_check_folder", output);
+
+        var resultMap = CheckResultParser.ParseMulti(output, out var totals);
+
+        // Apply statuses back to the FileEntry objects in SearchResults
+        var files = SearchResults.ToList();
+        int ok = 0, bad = 0, missing = 0, unknown = 0;
+
+        foreach (var file in files)
+        {
+            if (resultMap.TryGetValue(file.RelativePath, out var r))
+            {
+                file.Status = r.Status;
+            }
+            else if (totals.IsEverythingOk)
+            {
+                // Not mentioned → no errors
+                file.Status = FileStatus.OK;
+            }
+
+            switch (file.Status)
+            {
+                case FileStatus.OK:      ok++;      break;
+                case FileStatus.Missing: missing++; break;
+                case FileStatus.Bad:
+                case FileStatus.Unrecoverable: bad++; break;
+                default: unknown++; break;
+            }
+        }
+
+        RefreshAllResults();
+        StatusText = $"Folder check complete: {ok} OK, {missing} missing, {bad} bad, {unknown} unknown";
+        AppendConsole($"Folder check done: {ok} OK, {missing} missing, {bad} bad\n");
+    }
+
+    /// <summary>Fallback: one check call per file (used when results came from search).</summary>
+    private async Task CheckAllIndividual()
+    {
         var files = SearchResults.ToList();
         StatusText = $"Checking {files.Count} files…";
         AppendConsole($"\nBatch check: {files.Count} files\n");
@@ -252,7 +372,7 @@ public partial class RecoveryViewModel : BaseViewModel
         int ok = 0, bad = 0, missing = 0;
         for (int i = 0; i < files.Count; i++)
         {
-            if (!IsBusy) break; // cancelled externally
+            if (!IsBusy) break;
             var file = files[i];
             StatusText = $"Checking {i + 1}/{files.Count}: {file.FileName}";
             try
@@ -273,7 +393,6 @@ public partial class RecoveryViewModel : BaseViewModel
         RefreshAllResults();
         StatusText = $"Check complete: {ok} OK, {missing} missing, {bad} bad";
         AppendConsole($"Batch check done: {ok} OK, {missing} missing, {bad} bad\n");
-        IsBusy = false;
     }
 
     // ── Constructor ───────────────────────────────────────────────────────
@@ -286,9 +405,10 @@ public partial class RecoveryViewModel : BaseViewModel
     // ── CanExecute ────────────────────────────────────────────────────────
     private bool CanRun()       => !IsBusy && !IsSearching;
     private bool CanSearch()    => !IsSearching && !string.IsNullOrWhiteSpace(SearchPattern);
-    private bool CanActOnFile() => !IsBusy && SelectedFile != null;
-    private bool CanFixFile()   => !IsBusy && SelectedFile != null &&
-                                   SelectedFile.Status is FileStatus.Missing or FileStatus.Bad;
+    private bool CanActOnFile() => !IsBusy && _selectedFiles.Count > 0;
+    private bool CanFixFile()   => !IsBusy && _selectedFiles.Any(f =>
+                                       f.Status is FileStatus.Missing or FileStatus.Bad
+                                                or FileStatus.Unrecoverable or FileStatus.Unknown);
     private bool CanRunBatch()  => !IsBusy && !IsSearching && SearchResults.Count > 0;
 
     partial void OnIsBusyChanged(bool value)

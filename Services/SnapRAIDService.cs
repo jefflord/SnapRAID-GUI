@@ -212,6 +212,22 @@ public class SnapRAIDService
         return await RunCommandAsync(_settings.SnapRaidExePath, "list", cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<string> RunCheckFolderAsync(string snapraidFolderPath, CancellationToken cancellationToken = default)
+    {
+        // e.g. check -f "/Z-BACKUP/AllBackup/Media/Digital Photography/2019/*"
+        var folder = snapraidFolderPath.StartsWith('/') ? snapraidFolderPath : "/" + snapraidFolderPath;
+        // Ensure no trailing slash before appending /*
+        folder = folder.TrimEnd('/');
+        return await RunCommandAsync(_settings.SnapRaidExePath, $"check -f \"{folder}/*\"", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> RunFixFolderAsync(string snapraidFolderPath, CancellationToken cancellationToken = default)
+    {
+        var folder = snapraidFolderPath.StartsWith('/') ? snapraidFolderPath : "/" + snapraidFolderPath;
+        folder = folder.TrimEnd('/');
+        return await RunCommandAsync(_settings.SnapRaidExePath, $"fix -f \"{folder}/*\"", cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<string> RunCheckFileAsync(string snapraidRelativePath, CancellationToken cancellationToken = default)
     {
         // snapraid requires a leading slash: check -f "/path/to/file"

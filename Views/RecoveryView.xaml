@@ -203,8 +203,11 @@
 
                 <!-- Results list -->
                 <ListView Grid.Row="1"
+                          x:Name="ResultsListView"
                           ItemsSource="{Binding SearchResults}"
                           SelectedItem="{Binding SelectedFile}"
+                          SelectionMode="Extended"
+                          SelectionChanged="ResultsList_SelectionChanged"
                           Background="White"
                           BorderThickness="0"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
