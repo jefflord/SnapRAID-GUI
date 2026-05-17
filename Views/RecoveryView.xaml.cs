@@ -1,5 +1,6 @@
 namespace SnapRAIDGUI.Views;
 
+using System.Windows;
 using System.Windows.Controls;
 using SnapRAIDGUI.Models;
 using SnapRAIDGUI.ViewModels;
@@ -11,14 +12,9 @@ public partial class RecoveryView : UserControl
         InitializeComponent();
     }
 
-    /// <summary>
-    /// When a tree item is selected:
-    /// - File node  → set SelectedFile so Check/Fix buttons activate.
-    /// - Folder node → populate the results panel with the folder's direct files.
-    /// </summary>
-    private void TreeItem_Selected(object sender, System.Windows.RoutedEventArgs e)
+    private void TreeItem_Selected(object sender, RoutedEventArgs e)
     {
-        if (sender is TreeViewItem { DataContext: FileTreeNode node } tvi)
+        if (sender is TreeViewItem { DataContext: FileTreeNode node })
         {
             if (DataContext is RecoveryViewModel vm)
             {
@@ -31,9 +27,6 @@ public partial class RecoveryView : UserControl
         e.Handled = true;
     }
 
-    /// <summary>
-    /// Sync the ListView's multi-selection to the ViewModel so Fix/Check can act on all selected files.
-    /// </summary>
     private void ResultsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DataContext is not RecoveryViewModel vm) return;
@@ -43,5 +36,52 @@ public partial class RecoveryView : UserControl
             .ToList();
 
         vm.SetSelectedFiles(selected);
+    }
+
+    private void ContextMenu_CheckSelected(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is RecoveryViewModel vm && vm.CheckFileCommand.CanExecute(null))
+            vm.CheckFileCommand.Execute(null);
+    }
+
+    private void ContextMenu_FixSelected(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is RecoveryViewModel vm && vm.FixFileCommand.CanExecute(null))
+            vm.FixFileCommand.Execute(null);
+    }
+
+    private void ContextMenu_ShowInBrowser(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not RecoveryViewModel vm) return;
+        if (ResultsListView.SelectedItem is not FileEntry file) return;
+
+        var node = vm.ShowInBrowser(file);
+        if (node != null)
+            BringTreeNodeIntoView(node);
+    }
+
+    /// Walk the visual tree to find the TreeViewItem for a node and scroll it into view.
+    private void BringTreeNodeIntoView(FileTreeNode node)
+    {
+        // Give the UI a tick to expand, then scroll
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+        {
+            var tvi = FindTreeViewItem(RecoveryTreeView, node);
+            tvi?.BringIntoView();
+        });
+    }
+
+    private static TreeViewItem? FindTreeViewItem(ItemsControl parent, object item)
+    {
+        if (parent == null) return null;
+        foreach (var child in parent.Items)
+        {
+            var tvi = parent.ItemContainerGenerator.ContainerFromItem(child) as TreeViewItem;
+            if (tvi == null) continue;
+            if (tvi.DataContext == item) return tvi;
+            var found = FindTreeViewItem(tvi, item);
+            if (found != null) return found;
+        }
+        return null;
     }
 }

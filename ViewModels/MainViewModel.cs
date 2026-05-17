@@ -24,17 +24,34 @@ public partial class MainViewModel : BaseViewModel
     [ObservableProperty] private string _logDirectoryPath = string.Empty;
     [ObservableProperty] private System.Collections.ObjectModel.ObservableCollection<MergedDriveEntry> _mergedDrives = new();
 
+    // Per-operation output panels
+    [ObservableProperty] private string _diffOutput   = string.Empty;
+    [ObservableProperty] private string _syncOutput   = string.Empty;
+    [ObservableProperty] private string _scrubOutput  = string.Empty;
+    [ObservableProperty] private string _smartOutput  = string.Empty;
+    [ObservableProperty] private string _fixOutput    = string.Empty;
+    [ObservableProperty] private string _statusOutput = string.Empty;
+
+    // Which operation-specific output property is currently active
+    private Action<string>? _activeOutputAppender;
+
     public RelayCommand SaveSettingsCommand { get; }
     public RelayCommand BrowseSnapRaidExeCommand { get; }
     public RelayCommand BrowseConfFileCommand { get; }
 
-    [RelayCommand] private void Status() => _ = OnStatus();
+ private void Status() => _ = OnStatus();
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Diff() => _ = OnDiff();
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Sync() => _ = OnSync();
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void ScrubNew() => _ = OnScrub(false);
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void ScrubFull() => _ = OnScrub(true);
     [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Fix() => OnFix();
-    [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Smart() => RunAsync(() => _snapRAIDService.RunSmartAsync());
+    [RelayCommand(CanExecute = nameof(CanRunOperation))] private void Smart() => RunAsync(async () =>
+    {
+        SmartOutput = string.Empty;
+        _activeOutputAppender = t => SmartOutput += t;
+        await _snapRAIDService.RunSmartAsync();
+        _activeOutputAppender = null;
+    });
     [RelayCommand(CanExecute = nameof(IsRunningOperation))] private void Cancel() => _snapRAIDService.Cancel();
     [RelayCommand] private void OpenSettings() => ShowSettings();
 
@@ -51,7 +68,10 @@ public partial class MainViewModel : BaseViewModel
         _snapRAIDService.ExitCodeReceived += OnExitCodeReceived;
         _snapRAIDService.ErrorOccurred += OnErrorOccurred;
 
-        RecoveryViewModel = new RecoveryViewModel(_snapRAIDService, _loggingService);
+        RecoveryViewModel = new RecoveryViewModel(
+            _snapRAIDService,
+            _loggingService,
+            () => Settings?.ConfirmOnFix ?? false);
 
         Settings = LoadSettingsOrDefault();
 
@@ -123,6 +143,8 @@ public partial class MainViewModel : BaseViewModel
     {
         if (!ValidateSnapRaidPath()) return;
 
+        SyncOutput = string.Empty;
+        _activeOutputAppender = t => SyncOutput += t;
         ClearConsole();
         AppendConsole("Running safety check (diff)...\n");
 
@@ -139,7 +161,7 @@ public partial class MainViewModel : BaseViewModel
                 System.Windows.MessageBoxButton.YesNo,
                 System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
 
-            if (!result) { AppendConsole("Sync cancelled by user.\n"); return; }
+            if (!result) { AppendConsole("Sync cancelled by user.\n"); _activeOutputAppender = null; return; }
         }
 
         ClearConsole();
@@ -149,12 +171,18 @@ public partial class MainViewModel : BaseViewModel
 
         var output = await _snapRAIDService.RunSyncAsync();
         _loggingService.WriteLog("sync", output);
+
+        _activeOutputAppender = null;
+        IsRunningOperation = false;
+        OperationStatus = "Ready";
     }
 
     private async Task OnScrub(bool full)
     {
         if (!ValidateSnapRaidPath()) return;
 
+        ScrubOutput = string.Empty;
+        _activeOutputAppender = t => ScrubOutput += t;
         var mode = full ? "Full" : "New";
         ClearConsole();
         AppendConsole($"Starting {mode} scrub...\n");
@@ -163,6 +191,10 @@ public partial class MainViewModel : BaseViewModel
 
         var output = await _snapRAIDService.RunScrubAsync(full);
         _loggingService.WriteLog("scrub", output);
+
+        _activeOutputAppender = null;
+        IsRunningOperation = false;
+        OperationStatus = "Ready";
     }
 
     private void OnFix()
@@ -179,6 +211,8 @@ public partial class MainViewModel : BaseViewModel
 
         if (!result) return;
 
+        FixOutput = string.Empty;
+        _activeOutputAppender = t => FixOutput += t;
         ClearConsole();
         AppendConsole("Starting fix...\n");
         IsRunningOperation = true;
@@ -190,6 +224,7 @@ public partial class MainViewModel : BaseViewModel
             _loggingService.WriteLog("fix", output);
             System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
+                _activeOutputAppender = null;
                 IsRunningOperation = false;
                 OperationStatus = "Ready";
             });
@@ -200,6 +235,8 @@ public partial class MainViewModel : BaseViewModel
     {
         if (!ValidateSnapRaidPath()) return;
 
+        DiffOutput = string.Empty;
+        _activeOutputAppender = t => DiffOutput += t;
         ClearConsole();
         AppendConsole("Running diff...\n");
         IsRunningOperation = true;
@@ -209,27 +246,25 @@ public partial class MainViewModel : BaseViewModel
         DiffData = DiffParser.Parse(output);
         _loggingService.WriteLog("diff", output);
 
-        if (string.IsNullOrEmpty(DiffData?.RawOutput) || !DiffData.RawOutput.Contains("added:", StringComparison.OrdinalIgnoreCase))
+        var summary = new System.Text.StringBuilder();
+        if (DiffData?.RawOutput == null || !DiffData.RawOutput.Contains("added:", StringComparison.OrdinalIgnoreCase))
         {
-            AppendConsole("\n[INFO] No changes detected — array is in sync.\n");
+            summary.AppendLine("[INFO] No changes detected — array is in sync.");
         }
         else
         {
-            AppendConsole($"\n--- Diff Summary ---\n");
-            AppendConsole($"  Added:   {DiffData.AddedFiles}\n");
-            AppendConsole($"  Removed: {DiffData.RemovedFiles}\n");
-            AppendConsole($"  Updated: {DiffData.UpdatedFiles}\n");
-            AppendConsole($"  Moved:   {DiffData.MovedFiles}\n");
-            AppendConsole($"  Copied:  {DiffData.CopiedFiles}\n");
-            AppendConsole($"  Equal:   {DiffData.EqualFiles}\n");
-            AppendConsole("--------------------\n\n");
-
+            summary.AppendLine($"Added:   {DiffData.AddedFiles}");
+            summary.AppendLine($"Removed: {DiffData.RemovedFiles}");
+            summary.AppendLine($"Updated: {DiffData.UpdatedFiles}");
+            summary.AppendLine($"Moved:   {DiffData.MovedFiles}");
+            summary.AppendLine($"Copied:  {DiffData.CopiedFiles}");
+            summary.AppendLine($"Equal:   {DiffData.EqualFiles}");
             if (DiffData.HasLargeDeletions(Settings?.DeletionWarningThreshold ?? 50))
-            {
-                AppendConsole($"[WARNING] Large deletions detected! Use Sync to update parity.\n");
-            }
+                summary.AppendLine($"[WARNING] Large deletions detected!");
         }
+        AppendConsole("\n" + summary);
 
+        _activeOutputAppender = null;
         IsRunningOperation = false;
         OperationStatus = "Ready";
     }
@@ -425,7 +460,11 @@ public partial class MainViewModel : BaseViewModel
 
     private void OnOutputReceived(object? sender, string output)
     {
-        System.Windows.Application.Current?.Dispatcher.Invoke(() => AppendConsole(output));
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            AppendConsole(output);
+            _activeOutputAppender?.Invoke(output);
+        });
     }
 
     private void OnExitCodeReceived(object? sender, int code) { /* update status if needed */ }

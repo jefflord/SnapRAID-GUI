@@ -42,11 +42,24 @@ public partial class App : Application
 
     private void LogAndShowError(string label, Exception ex)
     {
-        var msg = $"[{label}]\n{ex.GetType().Name}: {ex.Message}\n\n{ex.StackTrace}";
-        try { _loggingService.WriteLog("crash", msg); } catch { /* ignore logging failures */ }
+        // Walk inner exceptions to find the real cause
+        var sb = new System.Text.StringBuilder();
+        var current = ex;
+        int depth = 0;
+        while (current != null && depth < 6)
+        {
+            sb.AppendLine(depth == 0 ? $"[{label}]" : $"[Inner {depth}]");
+            sb.AppendLine($"{current.GetType().Name}: {current.Message}");
+            sb.AppendLine();
+            current = current.InnerException;
+            depth++;
+        }
+        var msg = sb.ToString();
+
+        try { _loggingService.WriteLog("crash", msg + "\n\n" + ex.StackTrace); } catch { }
 
         System.Windows.MessageBox.Show(
-            $"{label}:\n\n{ex.Message}",
+            msg,
             "Error — SnapRAID GUI",
             System.Windows.MessageBoxButton.OK,
             System.Windows.MessageBoxImage.Error);

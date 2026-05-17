@@ -4,47 +4,35 @@
              Background="#f8fafc">
 
     <UserControl.Resources>
-        <!-- Recursive tree template for FileTreeNode -->
+        <!-- Recursive tree template for FileTreeNode — FOLDERS ONLY (files hidden) -->
         <HierarchicalDataTemplate x:Key="TreeNodeTemplate"
-                                  ItemsSource="{Binding Children}">
+                                  ItemsSource="{Binding FolderChildren}">
             <Grid Margin="0,1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="18"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Status icon (file nodes) / folder icon -->
-                <TextBlock Grid.Column="0"
-                           Text="{Binding StatusIcon}"
-                           Foreground="{Binding StatusColor}"
-                           FontSize="12" VerticalAlignment="Center"/>
+                <!-- Folder icon -->
+                <TextBlock Grid.Column="0" Text=">" FontSize="11" Foreground="#64748b" VerticalAlignment="Center"/>
 
                 <!-- Name -->
                 <TextBlock Grid.Column="1"
                            Text="{Binding Name}"
                            Foreground="#1e293b"
                            FontSize="12"
-                           FontWeight="{Binding IsDirectory, Converter={StaticResource BoolToFontWeightConverter}}"
+                           FontWeight="SemiBold"
                            VerticalAlignment="Center"
                            Margin="2,0"/>
 
-                <!-- Folder summary -->
+                <!-- Folder summary (file count / bad count) -->
                 <TextBlock Grid.Column="2"
                            Text="{Binding FolderStatusSummary}"
                            Foreground="{Binding FolderStatusColor}"
                            FontSize="10"
                            VerticalAlignment="Center"
-                           Margin="8,0,4,0"
-                            Visibility="{Binding IsDirectory, Converter={StaticResource InvertibleBoolToVisibilityConverter}}"/>
-
-                <!-- File size / date -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"
-                            Visibility="{Binding IsDirectory, Converter={StaticResource InvertibleBoolToVisibilityConverter}, ConverterParameter=inverse}">
-                    <TextBlock Text="{Binding SizeDisplay}" Foreground="#64748b" FontSize="10" Margin="4,0"/>
-                    <TextBlock Text="{Binding LastModifiedDisplay}" Foreground="#94a3b8" FontSize="10"/>
-                </StackPanel>
+                           Margin="8,0,4,0"/>
             </Grid>
         </HierarchicalDataTemplate>
     </UserControl.Resources>
@@ -154,21 +142,24 @@
                         <TextBlock Text="Array Browser" Foreground="#334155" FontSize="13" FontWeight="SemiBold"/>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Padding="4">
-                        <TreeView ItemsSource="{Binding TreeRoots}"
-                                  ItemTemplate="{StaticResource TreeNodeTemplate}"
-                                  Background="Transparent"
-                                  BorderThickness="0"
-                                  FontSize="12">
-                            <TreeView.ItemContainerStyle>
-                                <Style TargetType="TreeViewItem">
-                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                                    <Setter Property="Padding" Value="2,1"/>
-                                    <EventSetter Event="Selected" Handler="TreeItem_Selected"/>
-                                </Style>
-                            </TreeView.ItemContainerStyle>
-                        </TreeView>
-                    </ScrollViewer>
+                    <TreeView Grid.Row="1"
+                              x:Name="RecoveryTreeView"
+                              ItemsSource="{Binding TreeRoots}"
+                              ItemTemplate="{StaticResource TreeNodeTemplate}"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              FontSize="12"
+                              Padding="4"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                <Setter Property="Padding" Value="2,1"/>
+                                <EventSetter Event="Selected" Handler="TreeItem_Selected"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                    </TreeView>
                 </Grid>
             </Border>
 
@@ -221,6 +212,14 @@
                             <Setter Property="BorderBrush" Value="#f1f5f9"/>
                         </Style>
                     </ListView.ItemContainerStyle>
+                    <ListView.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Check Selected" Click="ContextMenu_CheckSelected"/>
+                            <MenuItem Header="Fix Selected"   Click="ContextMenu_FixSelected"/>
+                            <Separator/>
+                            <MenuItem Header="Show in Browser" Click="ContextMenu_ShowInBrowser"/>
+                        </ContextMenu>
+                    </ListView.ContextMenu>
                     <ListView.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="12,6">
@@ -277,13 +276,12 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <!-- Empty state -->
+                <!-- Empty state — hidden once any results exist -->
                 <TextBlock Grid.Row="1"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Foreground="#94a3b8" FontSize="14"
-                           Visibility="{Binding HasFileList, Converter={StaticResource InvertibleBoolToVisibilityConverter}, ConverterParameter=inverse}">
-                    Click <Bold>Load File List</Bold> to load all files from the SnapRAID array,
-                    then search by wildcard (e.g. <Italic>*DSC_9509*</Italic>).
+                           Foreground="#94a3b8" FontSize="14" TextAlignment="Center"
+                           Visibility="{Binding HasResults, Converter={StaticResource InvertibleBoolToVisibilityConverter}, ConverterParameter=inverse}">
+                    Click a folder in the <Bold>Array Browser</Bold> to list its files,&#x0a;or use the search box to find files by name.
                 </TextBlock>
             </Grid>
         </Grid>

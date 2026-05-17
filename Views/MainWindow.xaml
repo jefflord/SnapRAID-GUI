@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:SnapRAIDGUI.Views"
         Title="SnapRAID GUI"
+        Icon="/app.ico"
         Width="1100" Height="750"
         MinWidth="900" MinHeight="600"
         Background="#f8fafc"
@@ -30,6 +31,7 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="{Binding OperationStatus}" Foreground="#94a3b8" FontSize="13" Margin="0,0,16,0"/>
                     <Button Content="Cancel" Style="{StaticResource DangerButton}" Command="{Binding CancelCommand}" Width="80" Height="28" FontSize="12" Visibility="{Binding IsRunningOperation, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Button Content="Update Status" Style="{StaticResource SlateButton}" Command="{Binding StatusCommand}" Width="110" Height="28" FontSize="12" Margin="4,0"/>
                     <Button Content="Settings" Style="{StaticResource SlateButton}" Command="{Binding OpenSettingsCommand}" Width="90" Height="28" Margin="4,0"/>
                 </StackPanel>
             </Grid>
@@ -42,7 +44,8 @@
             <TabItem Header="Dashboard">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16" MinHeight="400">
                     <StackPanel>
-                        <TextBlock Text="No data available. Click 'Status' to refresh." Foreground="#64748b" FontSize="14" HorizontalAlignment="Center" Margin="0,200,0,0" Visibility="{Binding StatusData, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
+                        <!-- No data prompt -->
+                        <TextBlock Text="No data available. Click 'Update Status' to refresh." Foreground="#64748b" FontSize="14" HorizontalAlignment="Center" Margin="0,200,0,0" Visibility="{Binding StatusData, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
 
                         <!-- Health Overview Cards Row -->
                         <Grid Margin="0,0,0,16">
@@ -187,50 +190,8 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <!-- Empty state -->
-                                <TextBlock Text="No drive data available. Click 'Status' to refresh." Foreground="#94a3b8" FontSize="12" HorizontalAlignment="Center" Margin="0,16,0,0" Visibility="{Binding StatusData, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Quick Actions -->
-                        <TextBlock Text="Quick Actions" Foreground="#334155" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                        <WrapPanel Margin="0,0,0,16">
-                            <Button Content="Status" Style="{StaticResource SlateButton}" Command="{Binding StatusCommand}" Width="120" Height="40" Margin="4,0"/>
-                            <Button Content="Diff" Style="{StaticResource SlateButton}" Command="{Binding DiffCommand}" Width="120" Height="40" Margin="4,0"/>
-                            <Button Content="Sync" Style="{StaticResource SlateButton}" Command="{Binding SyncCommand}" Width="120" Height="40" Margin="4,0"/>
-                            <Button Content="Scrub (New)" Style="{StaticResource SlateButton}" Command="{Binding ScrubNewCommand}" Width="130" Height="40" Margin="4,0"/>
-                            <Button Content="Scrub (Full)" Style="{StaticResource SlateButton}" Command="{Binding ScrubFullCommand}" Width="130" Height="40" Margin="4,0"/>
-                            <Button Content="SMART Check" Style="{StaticResource SlateButton}" Command="{Binding SmartCommand}" Width="120" Height="40" Margin="4,0"/>
-                        </WrapPanel>
-
-                        <!-- Diff Summary -->
-                        <Border Style="{StaticResource CardStyle}" Visibility="{Binding DiffData, Converter={StaticResource NullToVisibilityConverter}}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Diff Summary" Foreground="#334155" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding DiffData.AddedFiles}" FontSize="28" FontWeight="Bold" Foreground="#22c55e" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Added" Foreground="#64748b" FontSize="11" HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding DiffData.RemovedFiles}" FontSize="28" FontWeight="Bold" Foreground="#ef4444" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Removed" Foreground="#64748b" FontSize="11" HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding DiffData.UpdatedFiles}" FontSize="28" FontWeight="Bold" Foreground="#f59e0b" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Updated" Foreground="#64748b" FontSize="11" HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="3" HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding DiffData.MovedFiles}" FontSize="28" FontWeight="Bold" Foreground="#3b82f6" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="Moved" Foreground="#64748b" FontSize="11" HorizontalAlignment="Center"/>
-                                    </StackPanel>
-                                </Grid>
+                        <!-- Empty state -->
+                        <TextBlock Text="No drive data available. Click 'Update Status' to refresh." Foreground="#94a3b8" FontSize="12" HorizontalAlignment="Center" Margin="0,16,0,0" Visibility="{Binding StatusData, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -241,72 +202,108 @@
             <TabItem Header="Operations">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
                     <StackPanel>
-                        <!-- Diff Section -->
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Diff (Check for Changes)" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <TextBlock Text="Compares current files against parity to detect changes. Shows added, removed, updated, and moved files." Foreground="#64748b" FontSize="12" Margin="0,0,0,12"/>
-                                <Button Content="Run Diff" Style="{StaticResource SlateButton}" Command="{Binding DiffCommand}" Width="160" Height="44" FontSize="15" IsEnabled="{Binding !IsRunningOperation}"/>
-                            </StackPanel>
+
+                        <!-- Diff -->
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,0,12,0">
+                                    <TextBlock Text="Diff" FontWeight="SemiBold" Foreground="#334155" FontSize="14" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Show pending changes since last sync." Foreground="#64748b" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                    <Button Content="Run Diff" Style="{StaticResource SlateButton}" Command="{Binding DiffCommand}" Height="34"/>
+                                </StackPanel>
+                                <TextBox Grid.Column="1" Text="{Binding DiffOutput, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                                         Background="#0f172a" Foreground="#e2e8f0" CaretBrush="#e2e8f0"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                         Height="120" TextWrapping="NoWrap" AcceptsReturn="True"/>
+                            </Grid>
                         </Border>
 
-                        <!-- Sync Section -->
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Parity Update (Sync)" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <TextBlock Text="Updates parity information. Runs diff first to check for large deletions." Foreground="#64748b" FontSize="12" Margin="0,0,0,12"/>
-                                <Button Content="Run Sync" Style="{StaticResource SlateButton}" Command="{Binding SyncCommand}" Width="160" Height="44" FontSize="15" IsEnabled="{Binding !IsRunningOperation}"/>
-                            </StackPanel>
+                        <!-- Sync -->
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,0,12,0">
+                                    <TextBlock Text="Sync" FontWeight="SemiBold" Foreground="#334155" FontSize="14" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Update parity with current data. Runs diff check first." Foreground="#64748b" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                    <Button Content="Run Sync" Style="{StaticResource SlateButton}" Command="{Binding SyncCommand}" Height="34"/>
+                                </StackPanel>
+                                <TextBox Grid.Column="1" Text="{Binding SyncOutput, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                                         Background="#0f172a" Foreground="#e2e8f0" CaretBrush="#e2e8f0"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                         Height="120" TextWrapping="NoWrap" AcceptsReturn="True"/>
+                            </Grid>
                         </Border>
 
-                        <!-- Scrub Section -->
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Scrub Operations" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <TextBlock Text="Checks data and parity for errors." Foreground="#64748b" FontSize="12" Margin="0,0,0,12"/>
-                                <Button Content="Scrub (New)" Style="{StaticResource SlateButton}" Command="{Binding ScrubNewCommand}" Width="160" Height="38" HorizontalAlignment="Left" Margin="0,0,0,8" IsEnabled="{Binding !IsRunningOperation}"/>
-                                <Button Content="Scrub (Full)" Style="{StaticResource SlateButton}" Command="{Binding ScrubFullCommand}" Width="160" Height="38" HorizontalAlignment="Left" IsEnabled="{Binding !IsRunningOperation}"/>
-                            </StackPanel>
+                        <!-- Scrub -->
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,0,12,0">
+                                    <TextBlock Text="Scrub" FontWeight="SemiBold" Foreground="#334155" FontSize="14" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Verify parity data against drives." Foreground="#64748b" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                    <Button Content="Scrub New" Style="{StaticResource SlateButton}" Command="{Binding ScrubNewCommand}" Height="34" Margin="0,0,0,6"/>
+                                    <Button Content="Scrub Full" Style="{StaticResource SlateButton}" Command="{Binding ScrubFullCommand}" Height="34"/>
+                                </StackPanel>
+                                <TextBox Grid.Column="1" Text="{Binding ScrubOutput, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                                         Background="#0f172a" Foreground="#e2e8f0" CaretBrush="#e2e8f0"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                         Height="120" TextWrapping="NoWrap" AcceptsReturn="True"/>
+                            </Grid>
                         </Border>
 
-                        <!-- Maintenance Section -->
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Maintenance" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="8">
-                                        <TextBlock Text="Array Status" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                        <Button Content="Refresh Status" Style="{StaticResource SlateButton}" Command="{Binding StatusCommand}" Width="160" Height="38" HorizontalAlignment="Left" IsEnabled="{Binding !IsRunningOperation}"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="8">
-                                        <TextBlock Text="Disk Health (SMART)" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                        <Button Content="Run SMART Check" Style="{StaticResource SlateButton}" Command="{Binding SmartCommand}" Width="160" Height="38" HorizontalAlignment="Left" IsEnabled="{Binding !IsRunningOperation}"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" Margin="8">
-                                        <TextBlock Text="Fix / Undelete" Foreground="#334155" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                        <Button Content="Run Fix" Style="{StaticResource DangerButton}" Command="{Binding FixCommand}" Width="160" Height="38" HorizontalAlignment="Left" IsEnabled="{Binding !IsRunningOperation}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </StackPanel>
+                        <!-- SMART -->
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,0,12,0">
+                                    <TextBlock Text="SMART" FontWeight="SemiBold" Foreground="#334155" FontSize="14" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Read drive health data from SMART." Foreground="#64748b" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                    <Button Content="Run SMART" Style="{StaticResource SlateButton}" Command="{Binding SmartCommand}" Height="34"/>
+                                </StackPanel>
+                                <TextBox Grid.Column="1" Text="{Binding SmartOutput, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                                         Background="#0f172a" Foreground="#e2e8f0" CaretBrush="#e2e8f0"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                         Height="120" TextWrapping="NoWrap" AcceptsReturn="True"/>
+                            </Grid>
                         </Border>
 
-                        <!-- Live Console -->
-                        <TextBlock Text="Live Console" Foreground="#334155" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                        <Border Style="{StaticResource CardStyle}">
-                            <ScrollViewer x:Name="ConsoleScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" ScrollChanged="ConsoleTextBox_ScrollChanged">
-                                <TextBox Text="{Binding ConsoleOutput}" FontFamily="Cascadia Code, Consolas" FontSize="13" Foreground="#1e293b" Background="#f8fafc" BorderThickness="0" Padding="12" TextWrapping="NoWrap" IsReadOnly="True" AcceptsReturn="True" PreviewKeyDown="ConsoleTextBox_PreviewKeyDown"/>
-                            </ScrollViewer>
+                        <!-- Fix -->
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,0,12,0">
+                                    <TextBlock Text="Fix" FontWeight="SemiBold" Foreground="#334155" FontSize="14" Margin="0,0,0,4"/>
+                                    <TextBlock Text="Recover damaged files using parity. Destructive." Foreground="#ef4444" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                    <Button Content="Run Fix" Style="{StaticResource DangerButton}" Command="{Binding FixCommand}" Height="34"/>
+                                </StackPanel>
+                                <TextBox Grid.Column="1" Text="{Binding FixOutput, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                                         Background="#0f172a" Foreground="#e2e8f0" CaretBrush="#e2e8f0"
+                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                         Height="120" TextWrapping="NoWrap" AcceptsReturn="True"/>
+                            </Grid>
                         </Border>
+
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
-            <!-- Recovery Tab -->
+
             <TabItem Header="Recovery">
                 <views:RecoveryView DataContext="{Binding RecoveryViewModel}"/>
             </TabItem>
@@ -344,6 +341,13 @@
                         <CheckBox Content="Auto-refresh status" IsChecked="{Binding Settings.AutoRefreshStatus}" Margin="0,0,0,8"/>
                         <TextBlock Text="Refresh interval (seconds)" Foreground="#475569" FontSize="13" Margin="0,0,0,4"/>
                         <TextBox Text="{Binding Settings.RefreshIntervalSeconds}" Width="200" Margin="0,0,0,24"/>
+
+                        <TextBlock Text="Recovery" Foreground="#334155" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                        <CheckBox Content="Confirm before fixing files"
+                                  IsChecked="{Binding Settings.ConfirmOnFix}"
+                                  Margin="0,0,0,4"/>
+                        <TextBlock Text="When unchecked, Fix Selected runs immediately without a confirmation dialog."
+                                   Foreground="#64748b" FontSize="11" Margin="0,0,0,24"/>
 
                         <TextBlock Text="Log Directory" Foreground="#475569" FontSize="13" Margin="0,0,0,4"/>
                         <TextBox Text="{Binding Settings.LogDirectory}" Margin="0,0,0,24"/>

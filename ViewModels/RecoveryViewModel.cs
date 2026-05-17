@@ -11,6 +11,7 @@ public partial class RecoveryViewModel : BaseViewModel
 {
     private readonly SnapRAIDService _service;
     private readonly LoggingService  _logger;
+    private readonly Func<bool>      _confirmOnFix; // reads live setting value
 
     // Cancellation for the currently running stream/search
     private CancellationTokenSource? _searchCts;
@@ -46,6 +47,9 @@ public partial class RecoveryViewModel : BaseViewModel
     public ObservableCollection<FileTreeNode> TreeRoots     { get; } = new();
 
     [ObservableProperty] private string _selectedFolderLabel = string.Empty;
+
+    /// True when the results panel has anything to show.
+    public bool HasResults => SearchResults.Count > 0;
 
     /// <summary>
     /// Called from the view when a folder node is clicked in the tree.
@@ -272,12 +276,15 @@ public partial class RecoveryViewModel : BaseViewModel
             : $"{targets.Count} files:\n" + string.Join("\n", targets.Take(10).Select(f => "  " + f.FileName))
               + (targets.Count > 10 ? $"\n  …and {targets.Count - 10} more" : "");
 
-        var confirm = System.Windows.MessageBox.Show(
-            $"Fix {(targets.Count == 1 ? "file" : "files")}:\n{fileList}\n\nThis will attempt to recover from parity.\nProceed?",
-            "Confirm Fix",
-            System.Windows.MessageBoxButton.YesNo,
-            System.Windows.MessageBoxImage.Warning);
-        if (confirm != System.Windows.MessageBoxResult.Yes) return;
+        if (_confirmOnFix())
+        {
+            var confirm = System.Windows.MessageBox.Show(
+                $"Fix {(targets.Count == 1 ? "file" : "files")}:\n{fileList}\n\nThis will attempt to recover from parity.\nProceed?",
+                "Confirm Fix",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning);
+            if (confirm != System.Windows.MessageBoxResult.Yes) return;
+        }
 
         IsBusy = true;
         AppendConsole($"\nFixing {targets.Count} file(s)…\n");
@@ -395,11 +402,62 @@ public partial class RecoveryViewModel : BaseViewModel
         AppendConsole($"Batch check done: {ok} OK, {missing} missing, {bad} bad\n");
     }
 
-    // ── Constructor ───────────────────────────────────────────────────────
-    public RecoveryViewModel(SnapRAIDService service, LoggingService logger)
+    /// <summary>
+    /// Called from the context menu "Show in Browser".
+    /// Finds the folder node matching the file's directory, expands it, selects it,
+    /// and populates the results panel — same as clicking the folder.
+    /// Returns the target node (so code-behind can scroll it into view), or null.
+    /// </summary>
+    public FileTreeNode? ShowInBrowser(FileEntry file)
     {
-        _service = service;
-        _logger  = logger;
+        var dir = file.Directory.Replace('\\', '/');
+        var node = FindFolderNode(TreeRoots, dir);
+        if (node == null) return null;
+
+        // Expand all ancestors
+        ExpandToNode(TreeRoots, dir);
+
+        node.IsExpanded = true;
+        SelectFolder(node);
+        return node;
+    }
+
+    private static FileTreeNode? FindFolderNode(IEnumerable<FileTreeNode> nodes, string path)
+    {
+        foreach (var n in nodes)
+        {
+            if (!n.IsDirectory) continue;
+            if (string.Equals(n.RelativePath.Replace('\\','/'), path, StringComparison.OrdinalIgnoreCase))
+                return n;
+            var found = FindFolderNode(n.Children, path);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static bool ExpandToNode(IEnumerable<FileTreeNode> nodes, string targetPath)
+    {
+        foreach (var n in nodes)
+        {
+            if (!n.IsDirectory) continue;
+            var nPath = n.RelativePath.Replace('\\', '/');
+            if (string.Equals(nPath, targetPath, StringComparison.OrdinalIgnoreCase) ||
+                targetPath.StartsWith(nPath + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                n.IsExpanded = true;
+                ExpandToNode(n.Children, targetPath);
+                return true;
+            }
+        }
+        return false;
+    }
+    public RecoveryViewModel(SnapRAIDService service, LoggingService logger, Func<bool> confirmOnFix)
+    {
+        _service      = service;
+        _logger       = logger;
+        _confirmOnFix = confirmOnFix;
+
+        SearchResults.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasResults));
     }
 
     // ── CanExecute ────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ public partial class SnapRAIDSettings : ObservableObject
     [ObservableProperty] private bool _autoRefreshStatus = true;
     [ObservableProperty] private int _refreshIntervalSeconds = 30;
     [ObservableProperty] private string _logDirectory = "logs";
+    [ObservableProperty] private bool _confirmOnFix = false;
 
     public SnapRAIDSettings() { }
 
@@ -22,5 +23,6 @@ public partial class SnapRAIDSettings : ObservableObject
         AutoRefreshStatus = other.AutoRefreshStatus;
         RefreshIntervalSeconds = other.RefreshIntervalSeconds;
         LogDirectory = other.LogDirectory;
+        ConfirmOnFix = other.ConfirmOnFix;
     }
 }

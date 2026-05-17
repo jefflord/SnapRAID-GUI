@@ -80,6 +80,9 @@ public partial class FileTreeNode : ObservableObject
     /// <summary>Child nodes (sub-folders and files).</summary>
     public ObservableCollection<FileTreeNode> Children { get; } = new();
 
+    /// <summary>Only folder children — used by the tree template so files are hidden from the browser.</summary>
+    public IEnumerable<FileTreeNode> FolderChildren => Children.Where(c => c.IsDirectory);
+
     // ── Aggregated folder status ──────────────────────────────────────────
     public int TotalFiles    { get; set; }
     public int OkFiles       { get; set; }
