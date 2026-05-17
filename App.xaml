@@ -9,6 +9,7 @@
         <conv:PercentToWidthConverter x:Key="PercentToWidthConverter"/>
         <conv:StatusColorConverter x:Key="StatusColorConverter"/>
         <conv:FillColorConverter x:Key="FillColorConverter"/>
+        <conv:BytesToGBConverter x:Key="BytesToGBConverter"/>
 
         <!-- Button Style -->
         <Style TargetType="Button" x:Key="SlateButton">

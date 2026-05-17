@@ -20,6 +20,7 @@ public partial class MainViewModel : BaseViewModel
     [ObservableProperty] private bool _isRunningOperation;
     [ObservableProperty] private string _operationStatus = "Ready";
     [ObservableProperty] private string _logDirectoryPath = string.Empty;
+    [ObservableProperty] private System.Collections.ObjectModel.ObservableCollection<MergedDriveEntry> _mergedDrives = new();
 
     public RelayCommand SaveSettingsCommand { get; }
     public RelayCommand BrowseSnapRaidExeCommand { get; }
@@ -238,24 +239,128 @@ public partial class MainViewModel : BaseViewModel
         IsRunningOperation = true;
         OperationStatus = "Refreshing...";
 
+        try
+        {
         var output = await _snapRAIDService.RunStatusAsync();
         StatusData = StatusParser.Parse(output);
+
+        // Log raw status output
         _loggingService.WriteLog("status", output);
+
+        // Log parser diagnostics immediately after parsing
+        _loggingService.WriteLog("status_parse_diag", StatusData.ParseDiagnostics);
+
+        // Parse snapraid.conf for individual drive entries
+        if (!string.IsNullOrWhiteSpace(Settings?.ConfFilePath) && File.Exists(Settings.ConfFilePath))
+        {
+            try
+            {
+                StatusData.ConfigDrives = ConfigParser.Parse(Settings.ConfFilePath);
+            }
+            catch (Exception ex)
+            {
+                AppendConsole($"[WARN] Could not parse snapraid.conf: {ex.Message}\n");
+            }
+        }
+        else
+        {
+            AppendConsole($"[WARN] snapraid.conf not found or path empty: '{Settings?.ConfFilePath}'\n");
+        }
+
+        BuildMergedDrives(StatusData);
 
         if (StatusData != null)
         {
-            AppendConsole($"\n--- Status Summary ---\n");
-            AppendConsole($"  Parity fragmentation: {StatusData.ParityFragmentationPercent}%\n");
-            AppendConsole($"  Array status:         {StatusData.ArrayAgeStatus}\n");
-            AppendConsole($"  Days since sync:      {StatusData.DaysSinceLastSync}\n");
-            AppendConsole($"  Drives detected:      {StatusData.Drives.Count}\n");
+            var summary = new System.Text.StringBuilder();
+            summary.AppendLine("\n--- Status Summary ---");
+            summary.AppendLine($"  Parity fragmentation: {StatusData.ParityFragmentationPercent}%");
+            summary.AppendLine($"  Array status:         {StatusData.ArrayAgeStatus}");
+            summary.AppendLine($"  Days since sync:      {StatusData.DaysSinceLastSync}");
+            summary.AppendLine($"  Scrub status:         {StatusData.ScrubStatus}");
+            summary.AppendLine($"  Drives from status:   {StatusData.Drives.Count}");
+            foreach (var d in StatusData.Drives)
+                summary.AppendLine($"    [{d.Type}] {d.Name}  used={d.UsedSizeBytes / 1073741824.0:F1}GB  total={d.TotalSizeBytes / 1073741824.0:F1}GB  fill={d.FillPercent:F1}%");
+            summary.AppendLine($"  Conf drives:          {StatusData.ConfigDrives.Count}");
+            foreach (var c in StatusData.ConfigDrives)
+                summary.AppendLine($"    [{c.Type}] {c.Name}  {c.Path}");
+            summary.AppendLine($"  Merged drive rows:    {MergedDrives.Count}");
+            foreach (var m in MergedDrives)
+                summary.AppendLine($"    [{m.Type}] {m.Name}  used={m.UsedGB}  total={m.TotalGB}  fill={m.FillPercentText}  free={m.FreePercentText}");
             if (StatusData.BadBlockDrives.Any())
-                AppendConsole($"  Bad block drives:     {string.Join(", ", StatusData.BadBlockDrives)}\n");
-            AppendConsole("----------------------\n\n");
+                summary.AppendLine($"  Bad block drives:     {string.Join(", ", StatusData.BadBlockDrives)}");
+            summary.AppendLine("----------------------");
+            AppendConsole(summary.ToString());
+            _loggingService.WriteLog("status_summary", summary.ToString());
+        }
+        }
+        catch (Exception ex)
+        {
+            var errorMsg = $"[ERROR] Status failed:\n{ex.GetType().Name}: {ex.Message}\n\n{ex.StackTrace}";
+            AppendConsole(errorMsg);
+            _loggingService.WriteLog("status_error", errorMsg);
         }
 
         IsRunningOperation = false;
         OperationStatus = "Ready";
+    }
+
+    private void BuildMergedDrives(StatusData status)
+    {
+        var diag = new System.Text.StringBuilder();
+        diag.AppendLine("=== BuildMergedDrives ===");
+        diag.AppendLine($"  ConfigDrives count: {status.ConfigDrives.Count}");
+        diag.AppendLine($"  Status Drives count: {status.Drives.Count}");
+
+        var merged = new System.Collections.ObjectModel.ObservableCollection<MergedDriveEntry>();
+
+        // Start from conf entries as the authoritative source
+        foreach (var conf in status.ConfigDrives)
+        {
+            var entry = new MergedDriveEntry
+            {
+                Name = conf.Name,
+                Type = conf.Type,
+                Path = conf.Path
+            };
+
+            // Enrich with live usage data from status output (data drives only)
+            var live = status.Drives.FirstOrDefault(d =>
+                string.Equals(d.Name, conf.Name, StringComparison.OrdinalIgnoreCase));
+            if (live != null)
+            {
+                entry.UsedSizeBytes = live.UsedSizeBytes;
+                entry.TotalSizeBytes = live.TotalSizeBytes;
+                diag.AppendLine($"  MERGED [{conf.Type}] {conf.Name} -> UsedGB={live.UsedSizeBytes / 1073741824.0:F1}, TotalGB={live.TotalSizeBytes / 1073741824.0:F1}");
+            }
+            else
+            {
+                diag.AppendLine($"  CONF-ONLY [{conf.Type}] {conf.Name} -> no live usage data (parity/extra)");
+            }
+
+            merged.Add(entry);
+        }
+
+        // Add any status drives not present in conf (safety net)
+        foreach (var live in status.Drives)
+        {
+            if (!merged.Any(m => string.Equals(m.Name, live.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                diag.AppendLine($"  STATUS-ONLY (not in conf) [{live.Type}] {live.Name}");
+                merged.Add(new MergedDriveEntry
+                {
+                    Name = live.Name,
+                    Type = live.Type,
+                    Path = "—",
+                    UsedSizeBytes = live.UsedSizeBytes,
+                    TotalSizeBytes = live.TotalSizeBytes
+                });
+            }
+        }
+
+        diag.AppendLine($"  FINAL MergedDrives count: {merged.Count}");
+        _loggingService.WriteLog("status_merge_diag", diag.ToString());
+
+        MergedDrives = merged;
     }
 
     private bool ValidateSnapRaidPath()
@@ -308,25 +413,6 @@ public partial class MainViewModel : BaseViewModel
         System.Windows.Application.Current?.Dispatcher.Invoke(() => AppendConsole($"[ERROR] {error}\n"));
     }
 
-    public void RefreshDashboard()
-    {
-        // Don't try to refresh if snapraid.exe path isn't configured or valid
-        if (string.IsNullOrWhiteSpace(Settings?.SnapRaidExePath) || !File.Exists(Settings.SnapRaidExePath))
-            return;
-
-        RunAsync(async () =>
-        {
-            try
-            {
-                var output = await _snapRAIDService.RunStatusAsync();
-                if (!string.IsNullOrEmpty(output) && !output.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase))
-                    StatusData = StatusParser.Parse(output);
-            }
-            catch (Exception ex)
-            {
-                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
-                    AppendConsole($"[ERROR] Failed to refresh status: {ex.Message}\n"));
-            }
-        });
-    }
+    /// <summary>Called on window load — runs the full status pipeline including conf parse and drive merge.</summary>
+    public void RefreshDashboard() => _ = OnStatus();
 }

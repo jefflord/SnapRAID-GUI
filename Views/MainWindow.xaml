@@ -84,23 +84,66 @@
                         <!-- Drive Fill Levels -->
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                             <StackPanel>
-                                <TextBlock Text="Drive Fill Levels" Foreground="#334155" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                                <ItemsControl ItemsSource="{Binding StatusData.Drives}">
+                                <TextBlock Text="Drive Details" Foreground="#334155" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                        <!-- Drive Details — unified table from conf + live status -->
+                                <ItemsControl ItemsSource="{Binding MergedDrives}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Margin="0,4,0,4">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="120"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="80"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="#334155" FontSize="13"/>
-                                                <ProgressBar Grid.Column="1" Value="{Binding FillPercent}" Height="6" Margin="8,0" Background="#e2e8f0" Foreground="{Binding FillPercent, Converter={StaticResource FillColorConverter}}"/>
-                                                <TextBlock Grid.Column="2" Text="{Binding FillPercent, StringFormat={}{0:F1}%}" Foreground="#64748b" FontSize="12" HorizontalAlignment="Right"/>
-                                            </Grid>
+                                            <Border Background="#f1f5f9" CornerRadius="6" Padding="12,10" Margin="0,3,0,3">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <!-- Type badge -->
+                                                        <ColumnDefinition Width="70"/>
+                                                        <!-- Name -->
+                                                        <ColumnDefinition Width="130"/>
+                                                        <!-- Path -->
+                                                        <ColumnDefinition Width="*"/>
+                                                        <!-- Usage: used / total -->
+                                                        <ColumnDefinition Width="160"/>
+                                                        <!-- Progress bar + % -->
+                                                        <ColumnDefinition Width="160"/>
+                                                        <!-- Free label -->
+                                                        <ColumnDefinition Width="90"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- Type badge -->
+                                                    <Border Grid.Column="0" Background="{Binding Type, Converter={StaticResource StatusColorConverter}}" CornerRadius="4" Padding="6,3" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Type}" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                                                    </Border>
+
+                                                    <!-- Name -->
+                                                    <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="#334155" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0"/>
+
+                                                    <!-- Path -->
+                                                    <TextBlock Grid.Column="2" Text="{Binding Path}" Foreground="#64748b" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="4,0"/>
+
+                                                    <!-- Used / Total -->
+                                                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
+                                                        <TextBlock Text="{Binding UsedGB}" Foreground="#334155" FontWeight="SemiBold" FontSize="12"/>
+                                                        <TextBlock Text=" / " Foreground="#94a3b8" FontSize="12"/>
+                                                        <TextBlock Text="{Binding TotalGB}" Foreground="#64748b" FontSize="12"/>
+                                                    </StackPanel>
+
+                                                    <!-- Progress bar + fill % -->
+                                                    <StackPanel Grid.Column="4" VerticalAlignment="Center" Margin="4,0">
+                                                        <ProgressBar Value="{Binding FillPercent, Mode=OneWay}" Maximum="100" Height="10" Background="#e2e8f0"
+                                                                     Foreground="{Binding FillPercent, Converter={StaticResource FillColorConverter}, Mode=OneWay}"
+                                                                     Visibility="{Binding HasUsageData, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                        <TextBlock Text="{Binding FillPercentText}" Foreground="#64748b" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                                    </StackPanel>
+
+                                                    <!-- Free % -->
+                                                    <TextBlock Grid.Column="5" Text="{Binding FreePercentText}" Foreground="#22c55e" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="8,0,0,0"
+                                                               Visibility="{Binding HasUsageData, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                </Grid>
+                                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- Empty state -->
+                                <TextBlock Text="No drive data available. Click 'Status' to refresh." Foreground="#94a3b8" FontSize="12" HorizontalAlignment="Center" Margin="0,16,0,0" Visibility="{Binding StatusData, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
                             </StackPanel>
                         </Border>
 

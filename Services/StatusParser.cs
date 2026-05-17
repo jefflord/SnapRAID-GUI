@@ -1,16 +1,25 @@
 namespace SnapRAIDGUI.Services;
 
+using System.Text;
+using System.Text.RegularExpressions;
 using SnapRAIDGUI.Models;
 
 public static class StatusParser
 {
     public static StatusData Parse(string output)
     {
+        var diag = new StringBuilder();
+        diag.AppendLine("=== StatusParser.Parse() ===");
+
         if (string.IsNullOrWhiteSpace(output))
-            return new StatusData();
+        {
+            diag.AppendLine("INPUT: null or empty — returning empty StatusData");
+            return new StatusData { ParseDiagnostics = diag.ToString() };
+        }
+
+        diag.AppendLine($"INPUT: {output.Length} chars, {output.Split('\n').Length} lines");
 
         var data = new StatusData { RawOutput = output };
-
         var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
         foreach (var rawLine in lines)
@@ -18,20 +27,11 @@ public static class StatusParser
             var line = rawLine.Trim();
             if (string.IsNullOrEmpty(line)) continue;
 
-            // Parity fragmentation: "Parity fragmentation: 45%" or similar
             ParseFragmentation(line, data);
-
-            // Last sync date
             ParseLastSync(line, data);
-
-            // Scrub progress/status
             ParseScrubStatus(line, data);
-
-            // Bad blocks / silent errors
             ParseBadBlocks(line, data);
-
-            // Drive info lines (d1, d2, parity, etc.)
-            ParseDriveInfo(line, data);
+            ParseDriveInfo(line, data, diag);
         }
 
         // Determine array age status as fallback
@@ -47,6 +47,15 @@ public static class StatusParser
                 data.ArrayAgeStatus = "Unknown";
         }
 
+        diag.AppendLine($"RESULT: ParityFrag={data.ParityFragmentationPercent}%, ArrayStatus={data.ArrayAgeStatus}, DaysSinceSync={data.DaysSinceLastSync}, ScrubStatus={data.ScrubStatus}");
+        diag.AppendLine($"RESULT: Drives parsed from status output: {data.Drives.Count}");
+        foreach (var d in data.Drives)
+            diag.AppendLine($"  DRIVE: Name={d.Name}, Type={d.Type}, Used={d.UsedSizeBytes / 1073741824.0:F1}GB, Total={d.TotalSizeBytes / 1073741824.0:F1}GB, Fill={d.FillPercent:F1}%");
+
+        if (data.Drives.Count == 0)
+            diag.AppendLine("  WARNING: No drives parsed! Check ParseDriveInfo regex against raw output.");
+
+        data.ParseDiagnostics = diag.ToString();
         return data;
     }
 
@@ -54,7 +63,7 @@ public static class StatusParser
     {
         if (line.IndexOf("parity fragmentation", StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            var match = System.Text.RegularExpressions.Regex.Match(line, @"(\d+)%?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var match = Regex.Match(line, @"(\d+)%?", RegexOptions.IgnoreCase);
             if (match.Success && int.TryParse(match.Groups[1].Value, out var pct))
                 data.ParityFragmentationPercent = pct;
         }
@@ -62,64 +71,53 @@ public static class StatusParser
 
     private static void ParseLastSync(string line, StatusData data)
     {
-        if (line.IndexOf("last sync", StringComparison.OrdinalIgnoreCase) >= 0 &&
-            line.IndexOf("fragmentation", StringComparison.OrdinalIgnoreCase) < 0)
+        if (line.IndexOf("days ago", StringComparison.OrdinalIgnoreCase) >= 0 &&
+            line.IndexOf("last scrub/sync", StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            // Handle "never" or "not yet synced"
-            if (line.IndexOf("never", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("not yet", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                data.DaysSinceLastSync = -1;
-                return;
-            }
+            var match = Regex.Match(line, @"(\d+)\s+days?\s+ago");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var days))
+                data.DaysSinceLastSync = days;
+        }
 
-            // Try to extract date after "last sync:" or "last sync"
+        if (line.IndexOf("last sync", StringComparison.OrdinalIgnoreCase) >= 0 &&
+            line.IndexOf("fragmentation", StringComparison.OrdinalIgnoreCase) < 0 &&
+            line.IndexOf("days ago", StringComparison.OrdinalIgnoreCase) < 0)
+        {
             var colonIdx = line.IndexOf(':');
             if (colonIdx > 0 && colonIdx + 1 < line.Length)
             {
                 var dateStr = line.Substring(colonIdx + 1).Trim();
-                // Handle formats like: "2024-01-15 14:30", "Jan 15, 2024", etc.
                 if (DateTime.TryParse(dateStr, out var syncDate))
                     data.DaysSinceLastSync = (int)(DateTime.Now - syncDate).TotalDays;
             }
+
+            if (line.IndexOf("never", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("not yet", StringComparison.OrdinalIgnoreCase) >= 0)
+                data.DaysSinceLastSync = -1;
         }
     }
 
     private static void ParseScrubStatus(string line, StatusData data)
     {
-        // Scrub progress: "Scrub progress: 75%" or similar
-        if (line.IndexOf("scrub progress", StringComparison.OrdinalIgnoreCase) >= 0)
+        var notScrubbedMatch = Regex.Match(line,
+            @"(\d+)%\s+of\s+the\s+array\s+is\s+(not\s+)?scrubbed", RegexOptions.IgnoreCase);
+        if (notScrubbedMatch.Success && int.TryParse(notScrubbedMatch.Groups[1].Value, out var scrubPct))
         {
-            var match = System.Text.RegularExpressions.Regex.Match(line, @"(\d+)%?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (match.Success && int.TryParse(match.Groups[1].Value, out var pct))
-            {
-                data.ScrubStatus = $"{pct}%";
-                // Try to estimate total blocks from context
-                var allMatch = System.Text.RegularExpressions.Regex.Match(line, @"(\d+)\s*/\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                if (allMatch.Success && int.TryParse(allMatch.Groups[1].Value, out var done) && int.TryParse(allMatch.Groups[2].Value, out var total))
-                {
-                    data.ScrubbedBlocks = done;
-                    data.TotalBlocks = total;
-                }
-            }
+            bool isNot = notScrubbedMatch.Groups[2].Success;
+            data.ScrubStatus = isNot ? $"{scrubPct}% unscrubbed" : $"Scrubbed {scrubPct}%";
         }
 
-        // Scrub status: "Scrub: not started", "Scrub: in progress", etc.
-        if (line.IndexOf("scrub:", StringComparison.OrdinalIgnoreCase) >= 0 &&
-            line.IndexOf("progress", StringComparison.OrdinalIgnoreCase) < 0)
-        {
-            var scrubState = line.Substring(line.IndexOf("scrub:", StringComparison.OrdinalIgnoreCase) + 6).Trim();
-            data.ScrubStatus = string.IsNullOrEmpty(scrubState) ? "N/A" : scrubState;
-        }
+        if (line.IndexOf("no error detected", StringComparison.OrdinalIgnoreCase) >= 0 &&
+            string.IsNullOrEmpty(data.ArrayAgeStatus))
+            data.ArrayAgeStatus = "Clean";
     }
 
     private static void ParseBadBlocks(string line, StatusData data)
     {
-        if ((line.IndexOf("bad block", StringComparison.OrdinalIgnoreCase) >= 0 ||
-             line.IndexOf("silent error", StringComparison.OrdinalIgnoreCase) >= 0))
+        if (line.IndexOf("bad block", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            line.IndexOf("silent error", StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            // Try to extract drive name: "d1: bad blocks" or similar
-            var match = System.Text.RegularExpressions.Regex.Match(line, @"(d\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var match = Regex.Match(line, @"(d\d+)", RegexOptions.IgnoreCase);
             if (match.Success)
             {
                 var driveName = match.Groups[1].Value;
@@ -129,50 +127,64 @@ public static class StatusParser
         }
     }
 
-    private static void ParseDriveInfo(string line, StatusData data)
+    private static void ParseDriveInfo(string line, StatusData data, StringBuilder diag)
     {
-        // Match drive lines like: "d1  F:\disk1\   4096 GB  2500 GB" or "parity  E:\parity\   4096 GB  0 GB"
-        // Use regex to find the pattern: name + path + two numbers with optional unit
-        var match = System.Text.RegularExpressions.Regex.Match(line, @"^(d\d+|parity)\s+(.+?)\s+(\d[\d,.]*)\s*(GB|TB|MB)?\s+(\d[\d,.]*)\s*(GB|TB|MB)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Skip known header/separator lines
+        if (line.Contains("------") ||
+            line.Contains("status report", StringComparison.OrdinalIgnoreCase) ||
+            line.StartsWith("Files", StringComparison.OrdinalIgnoreCase) ||
+            line.StartsWith("Fragmented", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // Real snapraid status drive line format:
+        //   310390       0       0    30.5    6119    5825  51% DrivePool_1
+        // Columns: files  fragmented  excess  wasted_gb  used_gb  free_gb  use%  name
+        //
+        // Pattern: starts with whitespace+digits, contains integers/decimals,
+        // then an integer%, then the drive name at the end.
+        var match = Regex.Match(line, @"^\s*\d[\d\s.]+\s+(\d+)%\s+(\S+)\s*$");
 
         if (!match.Success)
             return;
 
-        var driveName = match.Groups[1].Value;
-        var drivePath = match.Groups[2].Value.Trim();
-        var totalStr = match.Groups[3].Value.Replace(",", "");
-        var unit1 = match.Groups[4].Value.ToUpperInvariant();
-        var usedStr = match.Groups[5].Value.Replace(",", "");
-        var unit2 = match.Groups[6].Value.ToUpperInvariant();
+        if (!int.TryParse(match.Groups[1].Value, out var usePercent))
+            return;
 
-        // Determine base unit (default to GB if not specified)
-        var unit = string.IsNullOrEmpty(unit1) ? "GB" : unit1;
-        double totalGB, usedGB;
+        var driveName = match.Groups[2].Value.Trim();
+        if (string.IsNullOrEmpty(driveName))
+            return;
 
-        switch (unit)
+        // Extract all numeric tokens before the "XX%" to get used_gb and free_gb
+        var beforePct = line.Substring(0, match.Groups[1].Index).Trim();
+        var numTokens = Regex.Matches(beforePct, @"-?\d+(?:\.\d+)?");
+
+        double usedGB = 0, freeGB = 0;
+        if (numTokens.Count >= 2)
         {
-            case "TB": totalGB = double.Parse(totalStr) * 1024; break;
-            case "MB": totalGB = double.Parse(totalStr) / 1024; break;
-            default: totalGB = double.Parse(totalStr); break;
+            double.TryParse(numTokens[numTokens.Count - 2].Value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out usedGB);
+            double.TryParse(numTokens[numTokens.Count - 1].Value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out freeGB);
         }
 
-        var usedUnit = string.IsNullOrEmpty(unit2) ? unit : unit2;
-        switch (usedUnit)
-        {
-            case "TB": usedGB = double.Parse(usedStr) * 1024; break;
-            case "MB": usedGB = double.Parse(usedStr) / 1024; break;
-            default: usedGB = double.Parse(usedStr); break;
-        }
+        var totalGB = usedGB + freeGB;
+
+        diag.AppendLine($"DRIVE LINE MATCHED: '{line.Trim()}'");
+        diag.AppendLine($"  -> Name={driveName}, Use%={usePercent}, UsedGB={usedGB}, FreeGB={freeGB}, TotalGB={totalGB}");
 
         var drive = new DriveInfo
         {
             Name = driveName,
-            Type = driveName == "parity" ? "parity" : "data",
-            TotalSizeBytes = (long)(totalGB * 1024L * 1024L * 1024L),
-            UsedSizeBytes = (long)(usedGB * 1024L * 1024L * 1024L)
+            Type = "data",
+            UsedSizeBytes = (long)(usedGB * 1024L * 1024L * 1024L),
+            TotalSizeBytes = (long)(totalGB * 1024L * 1024L * 1024L)
         };
 
         if (!data.Drives.Any(d => d.Name == drive.Name))
             data.Drives.Add(drive);
+        else
+            diag.AppendLine($"  -> SKIPPED (duplicate)");
     }
 }
