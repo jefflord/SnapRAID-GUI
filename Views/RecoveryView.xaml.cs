@@ -1,12 +1,17 @@
 namespace SnapRAIDGUI.Views;
 
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using SnapRAIDGUI.Models;
 using SnapRAIDGUI.ViewModels;
 
 public partial class RecoveryView : UserControl
 {
+    private GridViewColumnHeader? _lastSortHeader;
+    private ListSortDirection _lastSortDir = ListSortDirection.Ascending;
+
     public RecoveryView()
     {
         InitializeComponent();
@@ -36,6 +41,34 @@ public partial class RecoveryView : UserControl
             .ToList();
 
         vm.SetSelectedFiles(selected);
+    }
+
+    private void ResultsHeader_Click(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is not GridViewColumnHeader header) return;
+        if (header.Tag is not string propertyName || string.IsNullOrEmpty(propertyName)) return;
+
+        var view = CollectionViewSource.GetDefaultView(ResultsListView.ItemsSource);
+        if (view == null) return;
+
+        // Toggle direction if clicking the same column again
+        var dir = (_lastSortHeader == header && _lastSortDir == ListSortDirection.Ascending)
+            ? ListSortDirection.Descending
+            : ListSortDirection.Ascending;
+
+        // Update header text to show sort arrow
+        if (_lastSortHeader != null)
+        {
+            var prev = _lastSortHeader.Content?.ToString() ?? string.Empty;
+            _lastSortHeader.Content = prev.TrimEnd(' ', '▲', '▼');
+        }
+        header.Content = $"{header.Content?.ToString()?.TrimEnd(' ', '▲', '▼')} {(dir == ListSortDirection.Ascending ? "▲" : "▼")}";
+
+        view.SortDescriptions.Clear();
+        view.SortDescriptions.Add(new SortDescription(propertyName, dir));
+
+        _lastSortHeader = header;
+        _lastSortDir = dir;
     }
 
     private void ContextMenu_CheckSelected(object sender, RoutedEventArgs e)

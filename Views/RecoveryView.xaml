@@ -170,30 +170,11 @@
             <!-- Right: Search results list -->
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Column headers -->
-                <Border Grid.Row="0" Background="#f1f5f9" Padding="12,8" BorderBrush="#e2e8f0" BorderThickness="0,0,0,1">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="28"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="200"/>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="100"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="" FontSize="11" Foreground="#64748b"/>
-                        <TextBlock Grid.Column="1" Text="Path" FontSize="11" Foreground="#64748b" FontWeight="SemiBold" Margin="4,0"/>
-                        <TextBlock Grid.Column="2" Text="Directory" FontSize="11" Foreground="#64748b" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Column="3" Text="Size" FontSize="11" Foreground="#64748b" FontWeight="SemiBold" HorizontalAlignment="Right"/>
-                        <TextBlock Grid.Column="4" Text="Modified" FontSize="11" Foreground="#64748b" FontWeight="SemiBold" Margin="8,0"/>
-                    </Grid>
-                </Border>
-
-                <!-- Results list -->
-                <ListView Grid.Row="1"
+                <!-- Results list with GridView (headers scroll with content) -->
+                <ListView Grid.Row="0"
                           x:Name="ResultsListView"
                           ItemsSource="{Binding SearchResults}"
                           SelectedItem="{Binding SelectedFile}"
@@ -203,11 +184,12 @@
                           BorderThickness="0"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto"
                           VirtualizingPanel.IsVirtualizing="True"
-                          VirtualizingPanel.VirtualizationMode="Recycling">
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          GridViewColumnHeader.Click="ResultsHeader_Click">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Padding" Value="4,3"/>
                             <Setter Property="BorderThickness" Value="0,0,0,1"/>
                             <Setter Property="BorderBrush" Value="#f1f5f9"/>
                         </Style>
@@ -220,64 +202,86 @@
                             <MenuItem Header="Show in Browser" Click="ContextMenu_ShowInBrowser"/>
                         </ContextMenu>
                     </ListView.ContextMenu>
-                    <ListView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="12,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="28"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="200"/>
-                                    <ColumnDefinition Width="80"/>
-                                    <ColumnDefinition Width="100"/>
-                                </Grid.ColumnDefinitions>
-
-                                <!-- Status icon -->
-                                <Border Grid.Column="0"
-                                        Background="{Binding StatusColor}"
-                                        CornerRadius="10" Width="20" Height="20"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding StatusIcon}"
-                                               Foreground="White" FontSize="11"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"/>
-                                </Border>
-
-                                <!-- Filename -->
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding FileName}"
-                                           Foreground="#1e293b" FontSize="12" FontWeight="SemiBold"
-                                           VerticalAlignment="Center" Margin="4,0"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding RelativePath}"/>
-
-                                <!-- Directory -->
-                                <TextBlock Grid.Column="2"
-                                           Text="{Binding Directory}"
-                                           Foreground="#64748b" FontSize="11"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding RelativePath}"/>
-
-                                <!-- Size -->
-                                <TextBlock Grid.Column="3"
-                                           Text="{Binding SizeDisplay}"
-                                           Foreground="#64748b" FontSize="11"
-                                           VerticalAlignment="Center"
-                                           HorizontalAlignment="Right"/>
-
-                                <!-- Modified -->
-                                <TextBlock Grid.Column="4"
-                                           Text="{Binding LastModified, StringFormat=yyyy-MM-dd}"
-                                           Foreground="#94a3b8" FontSize="11"
-                                           VerticalAlignment="Center"
-                                           Margin="8,0"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
+                    <ListView.View>
+                        <GridView>
+                            <!-- Status icon column -->
+                            <GridViewColumn Width="36">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{Binding StatusColor}"
+                                                CornerRadius="10" Width="20" Height="20"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding StatusIcon}"
+                                                       Foreground="White" FontSize="11"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <!-- Filename -->
+                            <GridViewColumn Width="280">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Tag="FileName" Content="Name" FontWeight="SemiBold"/>
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding FileName}"
+                                                   Foreground="#1e293b" FontSize="12" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding RelativePath}"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <!-- Directory -->
+                            <GridViewColumn Width="240">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Tag="Directory" Content="Directory" FontWeight="SemiBold"/>
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Directory}"
+                                                   Foreground="#64748b" FontSize="11"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding RelativePath}"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <!-- Size -->
+                            <GridViewColumn Width="90">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Tag="SizeBytes" Content="Size" FontWeight="SemiBold"/>
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding SizeDisplay}"
+                                                   Foreground="#64748b" FontSize="11"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <!-- Modified -->
+                            <GridViewColumn Width="110">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Tag="LastModified" Content="Modified" FontWeight="SemiBold"/>
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding LastModified, StringFormat=yyyy-MM-dd}"
+                                                   Foreground="#94a3b8" FontSize="11"
+                                                   VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
                 </ListView>
 
                 <!-- Empty state — hidden once any results exist -->
-                <TextBlock Grid.Row="1"
+                <TextBlock Grid.Row="0"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="#94a3b8" FontSize="14" TextAlignment="Center"
                            Visibility="{Binding HasResults, Converter={StaticResource InvertibleBoolToVisibilityConverter}, ConverterParameter=inverse}">
